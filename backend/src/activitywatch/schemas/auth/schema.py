@@ -6,19 +6,12 @@ from typing import Optional
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
-    confirm_password: str
     username: Optional[str] = None
 
-    @validator('password')
+    @validator("password")
     def password_strength(cls, v):
         if len(v) < 8:
-            raise ValueError('Пароль должен содержать минимум 8 символов')
-        return v
-
-    @validator('confirm_password')
-    def passwords_match(cls, v, values):
-        if 'password' in values and v != values['password']:
-            raise ValueError('Пароли не совпадают')
+            raise ValueError("Пароль должен содержать минимум 8 символов")
         return v
 
 
