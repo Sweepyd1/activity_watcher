@@ -16,12 +16,12 @@
             </svg>
             Статистика
           </router-link>
-          <router-link to="/auth" class="nav-link logout">
+          <button @click="handleLogout" class="nav-link logout">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
             </svg>
             Выйти
-          </router-link>
+          </button>
         </div>
       </div>
     </nav>
@@ -33,31 +33,42 @@
         <p class="subtitle">Управление аккаунтом и устройствами</p>
       </div>
 
-      <div class="profile-content">
+      <div v-if="loading" class="loading-spinner">
+        <div class="spinner"></div>
+        <p>Загрузка данных...</p>
+      </div>
+
+      <div v-else-if="error" class="error-message">
+        <p>{{ error }}</p>
+        <button @click="fetchUserData" class="retry-btn">Повторить</button>
+      </div>
+
+      <div v-else class="profile-content">
         <!-- Карточка пользователя -->
-        <div class="profile-card user-card">
+        <div class="profile-card user-card" v-if="userData">
           <div class="user-info">
             <div class="avatar">
-              <span class="avatar-text">AI</span>
+              <span class="avatar-text">{{ getInitials(userData.username || userData.email) }}</span>
             </div>
             <div class="user-details">
-              <h2>Александр Иванов</h2>
-              <p class="email">alex@example.com</p>
+              <h2>{{ userData.username || userData.email }}</h2>
+              <p class="email">{{ userData.email }}</p>
               <div class="user-stats">
                 <div class="stat">
                   <span class="stat-label">На платформе с</span>
-                  <span class="stat-value">15 янв 2024</span>
+                  <span class="stat-value">{{ formatDate(userData.created_at) }}</span>
                 </div>
                 <div class="stat">
                   <span class="stat-label">Всего времени</span>
-                  <span class="stat-value">142 ч 30 м</span>
+                  <span class="stat-value">142ч</span>
                 </div>
               </div>
             </div>
           </div>
-          <button class="edit-btn">Редактировать</button>
+          <button class="edit-btn" @click="editProfile">Редактировать</button>
         </div>
 
+        <!-- Остальная часть шаблона остается без изменений -->
         <!-- Устройства -->
         <div class="profile-card devices-card">
           <div class="card-header">
@@ -126,7 +137,18 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { authApi } from '@/api/auth'
+import Swal from 'sweetalert2'
 
+const router = useRouter()
+
+// Данные пользователя
+const userData = ref(null)
+const loading = ref(true)
+const error = ref('')
+
+// Mock данные (временные, пока нет реальных)
 const devices = ref([
   { 
     id: 1, 
@@ -143,22 +165,6 @@ const devices = ref([
     osVersion: 'macOS 14.2', 
     lastSeen: new Date(Date.now() - 3600000), 
     isActive: false 
-  },
-  { 
-    id: 3, 
-    name: 'Samsung Galaxy', 
-    type: 'android', 
-    osVersion: 'Android 14', 
-    lastSeen: new Date(), 
-    isActive: true 
-  },
-  { 
-    id: 4, 
-    name: 'Домашний ПК', 
-    type: 'linux', 
-    osVersion: 'Ubuntu 22.04', 
-    lastSeen: new Date(Date.now() - 86400000), 
-    isActive: false 
   }
 ])
 
@@ -172,10 +178,116 @@ const weeklyStats = ref([
   { day: 'Вс', hours: 2.1, percentage: 21 }
 ])
 
-onMounted(() => {
-  console.log('Profile page loaded')
-})
+// Получение данных пользователя
+const fetchUserData = async () => {
+  try {
+    loading.value = true
+    error.value = ''
+    
+    console.log('Получение данных пользователя...')
+    
+    // Получаем данные с бэкенда
+    const response = await authApi.getMe()
+    
+    console.log('Получены данные пользователя:', response)
+    
+    userData.value = response
+    
+  } catch (err) {
+    console.error('Ошибка при получении данных пользователя:', err)
+    
+    if (err.response?.status === 401) {
+      error.value = 'Требуется авторизация'
+      // Перенаправляем на страницу входа
+      setTimeout(() => {
+        router.push('/auth')
+      }, 1500)
+    } else if (err.response?.status === 404) {
+      error.value = 'Пользователь не найден'
+    } else {
+      error.value = 'Ошибка при загрузке данных: ' + (err.message || 'Неизвестная ошибка')
+    }
+    
+    // Если ошибка сети
+    if (err.message?.includes('Network Error')) {
+      error.value = 'Проблема соединения с сервером'
+    }
+    
+  } finally {
+    loading.value = false
+  }
+}
 
+// Выход
+const handleLogout = async () => {
+  try {
+    await Swal.fire({
+      title: 'Выйти?',
+      text: 'Вы уверены, что хотите выйти из аккаунта?',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Да, выйти',
+      cancelButtonText: 'Отмена'
+    })
+    
+    // Вызываем logout из API
+    await authApi.logout()
+    
+    // Очищаем localStorage
+    localStorage.removeItem('user')
+    
+    // Перенаправляем на страницу входа
+    router.push('/auth')
+    
+    Swal.fire({
+      title: 'Успешно!',
+      text: 'Вы вышли из аккаунта',
+      icon: 'success',
+      timer: 2000
+    })
+    
+  } catch (err) {
+    console.error('Ошибка при выходе:', err)
+  }
+}
+
+// Редактирование профиля
+const editProfile = () => {
+  Swal.fire({
+    title: 'Редактирование профиля',
+    text: 'Эта функция в разработке',
+    icon: 'info',
+    confirmButtonText: 'OK'
+  })
+}
+
+// Вспомогательные функции
+const getInitials = (name) => {
+  if (!name) return '??'
+  return name
+    .split(' ')
+    .map(part => part[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'Н/Д'
+  
+  try {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('ru-RU', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
+  } catch (e) {
+    return 'Н/Д'
+  }
+}
+
+// Остальные функции остаются без изменений
 const getDeviceTypeClass = (type) => {
   const classes = {
     windows: 'windows',
@@ -213,6 +325,11 @@ const getBarColor = (percentage) => {
   if (percentage > 50) return 'medium'
   return 'low'
 }
+
+// Загружаем данные при монтировании компонента
+onMounted(() => {
+  fetchUserData()
+})
 </script>
 
 <style scoped>
@@ -667,4 +784,42 @@ const getBarColor = (percentage) => {
   --warning-color: #f59e0b;
   --danger-color: #ef4444;
 }
+.nav-right > * {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #666;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 8px;
+  transition: all 0.3s;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.nav-right > *:hover {
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.nav-right > * svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+/* Специфичные стили для кнопки выхода */
+.nav-right > .logout-btn {
+  color: #ef4444;
+}
+
+.nav-right > .logout-btn:hover {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+}
+
 </style>

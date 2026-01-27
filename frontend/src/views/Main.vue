@@ -13,11 +13,7 @@
             <span class="logo-text">TimeTracker</span>
           </div>
           
-          <div class="nav-links">
-            <a href="#features" class="nav-link">Возможности</a>
-            <a href="#download" class="nav-link">Скачать</a>
-         
-          </div>
+    
           
           <div class="nav-actions">
             <router-link to="/auth" class="btn btn-outline">Войти</router-link>
@@ -47,9 +43,7 @@
                 </svg>
                 Скачать бесплатно
               </a>
-              <router-link to="/register" class="btn btn-outline btn-large">
-                Начать онлайн
-              </router-link>
+          
             </div>
           </div>
           

@@ -15,13 +15,8 @@
           <p class="tagline">Отслеживайте своё время на всех устройствах</p>
         </div>
 
-        <!-- Уведомления -->
-        <div v-if="message" :class="['alert', message.type]">
-          {{ message.text }}
-        </div>
-
         <!-- Форма -->
-        <div class="auth-form">
+        <div class="auth-form" v-if="!user">
           <div v-if="isRegister">
             <!-- Форма регистрации -->
             <div class="form-group">
@@ -32,10 +27,8 @@
                 v-model="form.email"
                 placeholder="Ваш email"
                 class="form-input"
-                :class="{ 'error': errors.email }"
-                @keyup.enter="register"
+                @keyup.enter="handleRegister"
               >
-              <span v-if="errors.email" class="error-text">{{ errors.email }}</span>
             </div>
 
             <div class="form-group">
@@ -46,10 +39,8 @@
                 v-model="form.username"
                 placeholder="Придумайте имя"
                 class="form-input"
-                :class="{ 'error': errors.username }"
-                @keyup.enter="register"
+                @keyup.enter="handleRegister"
               >
-              <span v-if="errors.username" class="error-text">{{ errors.username }}</span>
             </div>
 
             <div class="form-group">
@@ -60,10 +51,8 @@
                 v-model="form.password"
                 placeholder="Не менее 8 символов"
                 class="form-input"
-                :class="{ 'error': errors.password }"
-                @keyup.enter="register"
+                @keyup.enter="handleRegister"
               >
-              <span v-if="errors.password" class="error-text">{{ errors.password }}</span>
             </div>
 
             <div class="form-group">
@@ -74,19 +63,17 @@
                 v-model="form.confirmPassword"
                 placeholder="Повторите пароль"
                 class="form-input"
-                :class="{ 'error': errors.confirmPassword }"
-                @keyup.enter="register"
+                @keyup.enter="handleRegister"
               >
-              <span v-if="errors.confirmPassword" class="error-text">{{ errors.confirmPassword }}</span>
             </div>
 
             <button 
               class="submit-btn" 
-              @click="register"
-              :disabled="authStore.loading"
-              :class="{ 'loading': authStore.loading }"
+              @click="handleRegister"
+              :disabled="loading"
+              :class="{ 'loading': loading }"
             >
-              <span v-if="authStore.loading">
+              <span v-if="loading">
                 <span class="spinner"></span> Регистрация...
               </span>
               <span v-else>Зарегистрироваться</span>
@@ -99,7 +86,7 @@
 
           <div v-else>
             <!-- Форма входа -->
-            <button class="google-btn" @click="signInWithGoogle" :disabled="authStore.loading">
+            <button class="google-btn" @click="signInWithGoogle" :disabled="loading">
               <span class="google-icon">
                 <svg viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -123,10 +110,8 @@
                 v-model="loginForm.email"
                 placeholder="Ваш email"
                 class="form-input"
-                :class="{ 'error': loginErrors.email }"
-                @keyup.enter="login"
+                @keyup.enter="handleLogin"
               >
-              <span v-if="loginErrors.email" class="error-text">{{ loginErrors.email }}</span>
             </div>
 
             <div class="form-group">
@@ -137,24 +122,21 @@
                 v-model="loginForm.password"
                 placeholder="Ваш пароль"
                 class="form-input"
-                :class="{ 'error': loginErrors.password }"
-                @keyup.enter="login"
+                @keyup.enter="handleLogin"
               >
-              <span v-if="loginErrors.password" class="error-text">{{ loginErrors.password }}</span>
             </div>
 
             <div class="form-options">
-           
               <router-link to="/forgot-password" class="link">Забыли пароль?</router-link>
             </div>
 
             <button 
               class="submit-btn" 
-              @click="login"
-              :disabled="authStore.loading"
-              :class="{ 'loading': authStore.loading }"
+              @click="handleLogin"
+              :disabled="loading"
+              :class="{ 'loading': loading }"
             >
-              <span v-if="authStore.loading">
+              <span v-if="loading">
                 <span class="spinner"></span> Вход...
               </span>
               <span v-else>Войти</span>
@@ -165,6 +147,12 @@
             </div>
           </div>
         </div>
+
+        <!-- Если авторизован -->
+        <div v-else class="auth-success">
+          <h2>Добро пожаловать!</h2>
+          <p>Перенаправление на профиль...</p>
+        </div>
       </div>
     </div>
   </div>
@@ -173,17 +161,17 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { authApi } from '@/api/auth'
+import Swal from 'sweetalert2'
 
 const router = useRouter()
-const authStore = useAuthStore()
 
-// Состояния
+// Локальное состояние
+const user = ref(null)
+const loading = ref(false)
 const isRegister = ref(false)
-const rememberMe = ref(localStorage.getItem('remember_me') === 'true')
-const message = ref(null)
 
-// Данные форм
+// Формы
 const form = reactive({
   email: '',
   username: '',
@@ -196,183 +184,208 @@ const loginForm = reactive({
   password: ''
 })
 
-// Ошибки
-const errors = reactive({})
-const loginErrors = reactive({})
+// SweetAlert утилиты
+const showErrorAlert = (title, message) => {
+  Swal.fire({
+    icon: 'error',
+    title: title,
+    text: message,
+    confirmButtonText: 'OK',
+    customClass: {
+      confirmButton: 'swal2-confirm'
+    }
+  })
+}
 
-// Инициализация
-onMounted(() => {
-  // Если пользователь уже авторизован, перенаправляем в профиль
-  if (authStore.isAuthenticated) {
-    router.push('/profile')
-  }
-  
-  // Восстанавливаем сохраненный email
-  const savedEmail = localStorage.getItem('saved_email')
-  if (savedEmail) {
-    loginForm.email = savedEmail
-  }
-})
+const showSuccessAlert = (title, message) => {
+  Swal.fire({
+    icon: 'success',
+    title: title,
+    text: message,
+    confirmButtonText: 'OK',
+    timer: 3000,
+    timerProgressBar: true,
+    customClass: {
+      confirmButton: 'swal2-confirm'
+    }
+  })
+}
 
-// Переключение между формами
+const showInfoAlert = (title, message) => {
+  Swal.fire({
+    icon: 'info',
+    title: title,
+    text: message,
+    confirmButtonText: 'OK',
+    customClass: {
+      confirmButton: 'swal2-confirm'
+    }
+  })
+}
+
+const showConfirmAlert = (title, message) => {
+  return Swal.fire({
+    icon: 'question',
+    title: title,
+    text: message,
+    showCancelButton: true,
+    confirmButtonText: 'Да',
+    cancelButtonText: 'Нет',
+    customClass: {
+      confirmButton: 'swal2-confirm',
+      cancelButton: 'swal2-cancel'
+    }
+  })
+}
+
+
+// Переключение форм
 const toggleForm = () => {
   isRegister.value = !isRegister.value
-  clearMessages()
-  clearErrors()
 }
 
-// Очистка сообщений
-const clearMessages = () => {
-  message.value = null
-  authStore.clearError()
-}
-
-const clearErrors = () => {
-  Object.keys(errors).forEach(key => errors[key] = '')
-  Object.keys(loginErrors).forEach(key => loginErrors[key] = '')
-}
-
-// Валидация формы регистрации
+// Валидация регистрации
 const validateRegister = () => {
-  clearErrors()
-  let valid = true
+  const errors = []
 
   if (!form.email) {
-    errors.email = 'Email обязателен'
-    valid = false
+    errors.push('Email обязателен')
   } else if (!/\S+@\S+\.\S+/.test(form.email)) {
-    errors.email = 'Введите корректный email'
-    valid = false
+    errors.push('Введите корректный email')
   }
 
   if (form.username && !/^[a-zA-Z0-9_-]+$/.test(form.username)) {
-    errors.username = 'Имя пользователя может содержать только буквы, цифры, дефисы и подчеркивания'
-    valid = false
+    errors.push('Имя пользователя может содержать только буквы, цифры, дефисы и подчеркивания')
   }
 
   if (!form.password) {
-    errors.password = 'Пароль обязателен'
-    valid = false
+    errors.push('Пароль обязателен')
   } else if (form.password.length < 8) {
-    errors.password = 'Пароль должен быть не менее 8 символов'
-    valid = false
+    errors.push('Пароль должен быть не менее 8 символов')
   } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(form.password)) {
-    errors.password = 'Пароль должен содержать буквы верхнего и нижнего регистра и цифры'
-    valid = false
+    errors.push('Пароль должен содержать буквы верхнего и нижнего регистра и цифры')
   }
 
   if (form.password !== form.confirmPassword) {
-    errors.confirmPassword = 'Пароли не совпадают'
-    valid = false
+    errors.push('Пароли не совпадают')
   }
 
-  return valid
+  if (errors.length > 0) {
+    showErrorAlert('Ошибка валидации', errors.join('\n'))
+    return false
+  }
+
+  return true
 }
 
-// Валидация формы входа
+// Валидация входа
 const validateLogin = () => {
-  clearErrors()
-  let valid = true
+  const errors = []
 
   if (!loginForm.email) {
-    loginErrors.email = 'Email обязателен'
-    valid = false
+    errors.push('Email обязателен')
   } else if (!/\S+@\S+\.\S+/.test(loginForm.email)) {
-    loginErrors.email = 'Введите корректный email'
-    valid = false
+    errors.push('Введите корректный email')
   }
 
   if (!loginForm.password) {
-    loginErrors.password = 'Пароль обязателен'
-    valid = false
+    errors.push('Пароль обязателен')
   }
 
-  return valid
+  if (errors.length > 0) {
+    showErrorAlert('Ошибка валидации', errors.join('\n'))
+    return false
+  }
+
+  return true
 }
 
 // Регистрация
-const register = async () => {
+const handleRegister = async () => {
   if (!validateRegister()) return
 
+  loading.value = true
+
   try {
-    console.log("НАЖАЛ")
-    await authStore.register({
+    const response = await authApi.register({
       email: form.email,
       password: form.password,
-      confirm_password: form.confirmPassword,
       username: form.username || undefined
     })
     
-    message.value = {
-      text: '',
-      type: 'success'
-    }
+    showSuccessAlert('Успешно!', 'Регистрация прошла успешно. Теперь вы можете войти.')
     
-  } catch (error) {
-    const errorMsg = error.message || 'Ошибка при регистрации'
+    // Очищаем форму
+    Object.keys(form).forEach(key => form[key] = '')
     
-    // Обработка конкретных ошибок
-    if (errorMsg.includes('уже существует')) {
-      errors.email = errorMsg
-    } else if (errorMsg.includes('пароль')) {
-      errors.password = errorMsg
-    } else {
-      message.value = {
-        text: errorMsg,
-        type: 'error'
+    // Переключаем на форму входа
+    isRegister.value = false
+    
+  } catch (err) {
+    let errorMessage = 'Ошибка регистрации'
+    
+    if (err.response?.data?.detail) {
+      errorMessage = err.response.data.detail
+      if (typeof errorMessage === 'object') {
+        errorMessage = errorMessage.error || JSON.stringify(errorMessage)
       }
+    } else if (err.message) {
+      errorMessage = err.message
     }
+    
+    // Убираем "Network Error" из сообщения для пользователя
+    if (errorMessage.includes('Network Error')) {
+      errorMessage = 'Проблема соединения с сервером'
+    }
+    
+    showErrorAlert('Ошибка регистрации', errorMessage)
+    
+  } finally {
+    loading.value = false
   }
 }
 
 // Вход
-const login = async () => {
+const handleLogin = async () => {
   if (!validateLogin()) return
 
-  try {
-    // Сохраняем email если выбрана опция "запомнить меня"
-    if (rememberMe.value) {
-      localStorage.setItem('saved_email', loginForm.email)
-      localStorage.setItem('remember_me', 'true')
-    } else {
-      localStorage.removeItem('saved_email')
-      localStorage.removeItem('remember_me')
-    }
+  loading.value = true
 
-    await authStore.login(loginForm.email, loginForm.password)
+  try {
+    await authApi.login(loginForm.email, loginForm.password)
     
-  } catch (error) {
-    const errorMsg = error.message || 'Ошибка при входе'
+    showSuccessAlert('Успешный вход!', 'Перенаправление в профиль...')
+    router.push("/profile")
     
-    if (errorMsg.includes('email') || errorMsg.includes('Email')) {
-      loginErrors.email = errorMsg
-    } else if (errorMsg.includes('пароль') || errorMsg.includes('password')) {
-      loginErrors.password = errorMsg
-    } else if (errorMsg.includes('подтвержден') || errorMsg.includes('verified')) {
-      message.value = {
-        text: `${errorMsg}. Проверьте вашу почту для подтверждения.`,
-        type: 'warning'
-      }
-    } else {
-      message.value = {
-        text: errorMsg,
-        type: 'error'
-      }
+    // Обновляем статус авторизации
+    setTimeout(async () => {
+      await checkAuth()
+    }, 1000)
+    
+  } catch (err) {
+    let errorMessage = 'Ошибка входа'
+    
+    if (err.response?.data?.detail) {
+      errorMessage = err.response.data.detail
+    } else if (err.message) {
+      errorMessage = err.message
     }
+    
+    // Убираем "Network Error" из сообщения для пользователя
+    if (errorMessage.includes('Network Error')) {
+      errorMessage = 'Проблема соединения с сервером'
+    }
+    
+    showErrorAlert('Ошибка входа', errorMessage)
+    
+  } finally {
+    loading.value = false
   }
 }
 
 // Google OAuth
-const signInWithGoogle = async () => {
-  // Реализация OAuth
-  console.log('Google auth clicked')
-  // В будущем:
-  // window.location.href = '/api/v1/auth/google'
-}
-
-// Сброс пароля
-const forgotPassword = () => {
-  router.push('/forgot-password')
+const signInWithGoogle = () => {
+  showInfoAlert('Внимание', 'Авторизация через Google в разработке')
 }
 </script>
 
