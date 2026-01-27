@@ -1,0 +1,47 @@
+from datetime import datetime
+from pydantic import BaseModel, EmailStr, validator
+from typing import Optional
+
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    confirm_password: str
+    username: Optional[str] = None
+
+    @validator('password')
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('Пароль должен содержать минимум 8 символов')
+        return v
+
+    @validator('confirm_password')
+    def passwords_match(cls, v, values):
+        if 'password' in values and v != values['password']:
+            raise ValueError('Пароли не совпадают')
+        return v
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user_id: int
+    email: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    username: Optional[str]
+    is_verified: bool
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

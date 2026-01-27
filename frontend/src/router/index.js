@@ -3,11 +3,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 import AuthView from '@/views/AuthView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import StatisticsView from '@/views/StatisticsView.vue'
-
+import Main from '@/views/Main.vue'
 const routes = [
   {
     path: '/',
-    redirect: '/auth'
+    name: "Main",
+     component: Main
   },
   {
     path: '/auth',
