@@ -204,7 +204,7 @@ class Device(Base):
     )
     device_id: Mapped[str] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
         comment="Уникальный идентификатор устройства (hostname)",
     )
     device_name: Mapped[str] = mapped_column(

@@ -1,16 +1,16 @@
-import json
-from fastapi import FastAPI, Request
-from datetime import datetime
-from typing import List, Dict
+from fastapi import FastAPI
+
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from src.activitywatch.api.auth.router import router as auth_router
 from src.activitywatch.api.device.router import router as device_router
-
+from src.activitywatch.api.tracker.router import router as tracker_router
 app = FastAPI(title="ActivityWatch Receiver", version="1.0")
 app.include_router(auth_router)
 app.include_router(device_router)
-origins = ["*", "http://localhost:5173"]
+app.include_router(tracker_router)
+
+origins = ["http://localhost:5173"]
 
 app.add_middleware(
     CORSMiddleware,

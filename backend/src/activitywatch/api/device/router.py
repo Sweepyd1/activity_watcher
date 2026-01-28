@@ -1,144 +1,14 @@
-# activitywatch/api/routers/devices.py
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
+from src.activitywatch.schemas.devices.schema import CreateDeviceRequest, CreateTokenRequest, DeviceResponse, RegisterDeviceRequest, TokenResponse
 from src.activitywatch.loader import db
 from src.activitywatch.database.models import DevicePlatform, TokenPermission
-from src.activitywatch.core.security import decode_access_token
+from src.activitywatch.core.security import get_current_user
 
 router = APIRouter(prefix="/devices", tags=["devices"])
-
-
-# Функция для получения текущего пользователя из куки
-async def get_current_user(request: Request):
-    """Получение информации о текущем пользователе через куки"""
-    try:
-        # Получаем токен из куки
-        token = request.cookies.get("token")
-        print(f"Получен токен из куки: {token[:50] if token else 'None'}...")
-
-        if not token:
-            print("Токен не найден в куках")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Не авторизован"
-            )
-
-        # Декодируем токен
-        payload = decode_access_token(token)
-        if not payload:
-            print("Не удалось декодировать токен или токен истек")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Неверный или истекший токен",
-            )
-
-        print(f"Декодированный payload: {payload}")
-
-        user_id = payload.get("user_id")
-        token_type = payload.get("type")
-
-        if not user_id:
-            print("user_id не найден в токене")
-            print(f"Токен содержит: {payload}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Неверный токен: отсутствует user_id",
-            )
-
-        # Проверяем тип токена (должен быть access)
-        if token_type != "access":
-            print(f"Неправильный тип токена: {token_type}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный тип токена"
-            )
-
-        print(f"Ищем пользователя с ID: {user_id}")
-
-        # Получаем пользователя через db.users
-        user = await db.users.get_user_by_id(user_id)
-
-        if not user:
-            print("Пользователь не найден в БД")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден"
-            )
-
-        print(f"Найден пользователь: {user.email}")
-
-        return {
-            "id": user.id,
-            "email": user.email,
-            "username": user.username,
-            "is_verified": user.is_verified,
-            "created_at": user.created_at,
-            "devices_count": user.devices_count
-            if hasattr(user, "devices_count")
-            else 0,
-        }
-
-    except HTTPException as he:
-        print(f"HTTP Exception в get_current_user: {he.detail}")
-        raise he
-    except Exception as e:
-        print(f"Ошибка в get_current_user: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Ошибка сервера при получении данных пользователя",
-        )
-
-
-# Pydantic модели для запросов
-class CreateDeviceRequest(BaseModel):
-    device_name: str
-    platform: DevicePlatform = DevicePlatform.OTHER
-    platform_version: str = None
-
-
-class CreateTokenRequest(BaseModel):
-    device_id: int
-    token_name: str = "Основной токен"
-    permissions: List[TokenPermission] = None
-    expires_in_days: int = 30
-
-
-class RegisterDeviceRequest(BaseModel):
-    token: str
-    device_id: str = None  # заглушка
-    platform_version: str = None
-    client_version: str = None
-
-
-class DeviceResponse(BaseModel):
-    id: int
-    device_name: str
-    device_id: Optional[str] = None  # Может быть None
-    platform: DevicePlatform
-    platform_version: Optional[str] = None
-    client_version: Optional[str] = None  # Добавьте если есть
-    is_active: bool
-    sync_enabled: bool  # Добавьте если нужно
-    last_seen: Optional[datetime] = None  # Может быть None
-    first_seen: datetime
-    # created_at: datetime  # УДАЛИТЕ - в Device нет этого поля
-
-    # Добавьте конфигурацию для работы с ORM объектами
-    model_config = ConfigDict(from_attributes=True)
-
-
-class TokenResponse(BaseModel):
-    id: int
-    token: str  # Только при создании!
-    name: str
-    device_id: int
-    created_at: datetime
-    expires_at: datetime = None
-    permissions: List[str]
-
 
 @router.post("/new", response_model=DeviceResponse)
 async def create_device(

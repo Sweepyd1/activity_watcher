@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import select
-
+from sqlalchemy import or_
 from src.activitywatch.database.models import Device, DevicePlatform
 
 from src.activitywatch.database.db_manager import DatabaseManager
@@ -125,3 +125,18 @@ class DevicesCRUD:
                 await session.refresh(device)
 
             return device
+    async def find_device_by_identifier(
+        self,
+        device_identifier: str
+    ) -> Optional[Device]:
+        async with self.db.get_session() as session:
+            
+            
+            stmt = select(Device).where(
+                or_(
+                    Device.device_id == device_identifier,
+                    Device.device_name == device_identifier
+                )
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()

@@ -1,9 +1,8 @@
-# activitywatch/api/routers/auth.py
-from datetime import datetime, timedelta
+from datetime import  timedelta
 import re
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+
 from typing import Dict, Any
 import httpx
 from urllib.parse import urlencode
@@ -12,56 +11,42 @@ from src.activitywatch.loader import db
 from src.activitywatch.schemas.auth.schema import (
     UserRegister,
     UserLogin,
-    TokenResponse,
-    UserResponse,
+
 )
 from src.activitywatch.core.security import create_access_token, decode_access_token
+from src.activitywatch.config import cfg
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-# Конфигурация Google OAuth (вынесите в настройки/конфиг)
-GOOGLE_CLIENT_ID = (
-    "399576290963-mea5q8ddssadv8ta65vo6o3q3jl8rmpf.apps.googleusercontent.com"
-)
-GOOGLE_CLIENT_SECRET = "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"
-GOOGLE_REDIRECT_URI = "http://localhost:8000/auth/google/callback"  # Для dev
-GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_USER_INFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
-
-
 @router.get("/google")
-async def google_auth(request: Request):  # ← ДОБАВЬ Request!
+async def google_auth(request: Request):  
     params = {
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": GOOGLE_REDIRECT_URI,  # http://localhost:8000/auth/google/callback
+        "client_id": cfg.google.client_id,
+        "redirect_uri": cfg.google.redirect_uri,  
         "response_type": "code",
         "scope": "openid email profile",
         "access_type": "offline",
         "prompt": "select_account",
         "state": "random_state_string",
     }
-    auth_url = f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
+    auth_url = f"{cfg.google.auth_url}?{urlencode(params)}"
 
-    # Редирект на Google (важно для CORS!)
-    return RedirectResponse(url=auth_url)  # ← ИЗМЕНИ НА ЭТО!
+    return RedirectResponse(url=auth_url)  
 
 
 @router.get("/google/callback")
 async def google_callback(code: str = Query(...), state: str = Query(None)):
-    """Обработка callback от Google"""
     try:
-        # 1. Обмен code на access_token (без изменений)
         async with httpx.AsyncClient() as client:
             token_response = await client.post(
-                GOOGLE_TOKEN_URL,
+                cfg.google.token_url,
                 data={
-                    "client_id": GOOGLE_CLIENT_ID,
-                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "client_id": cfg.google.client_id,
+                    "client_secret": cfg.google.client_secret,
                     "code": code,
                     "grant_type": "authorization_code",
-                    "redirect_uri": GOOGLE_REDIRECT_URI,
+                    "redirect_uri": cfg.google.redirect_uri,
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
@@ -74,9 +59,8 @@ async def google_callback(code: str = Query(...), state: str = Query(None)):
             tokens = token_response.json()
             access_token = tokens["access_token"]
 
-            # 2. Получаем данные пользователя (без изменений)
             user_response = await client.get(
-                GOOGLE_USER_INFO_URL,
+                cfg.google.user_info_url,
                 headers={"Authorization": f"Bearer {access_token}"},
             )
 
@@ -87,7 +71,6 @@ async def google_callback(code: str = Query(...), state: str = Query(None)):
 
             user_info = user_response.json()
 
-        # 3. ИСПРАВЛЕНИЕ: Особая обработка для Google пользователей
         email = user_info["email"]
         user = await db.users.get_user_by_email(email)
 
@@ -99,24 +82,21 @@ async def google_callback(code: str = Query(...), state: str = Query(None)):
             if existing_user:
                 username = f"{username}_{user_info.get('sub', '')[:4]}"
 
-            # 🔥 Передаем ВЫМЫШЛЕННЫЙ пароль для Google пользователей
-            FAKE_PASSWORD = str(uuid.uuid4())
+            password = str(uuid.uuid4())
             user = await db.users.create_user(
                 email=email,
-                password=FAKE_PASSWORD,  # ← Строка, а не None!
+                password=password, 
                 username=username,
             )
 
         else:
             await db.users.update_user(user.id, is_verified=True)
 
-        # 4. JWT токен (без изменений)
         jwt_token = create_access_token(
             data={"sub": user.email, "user_id": user.id, "type": "access"},
             expires_delta=timedelta(days=30),
         )
 
-        # 5. Редирект с куки
         response = RedirectResponse(
             url="http://localhost:5173/profile", status_code=302
         )
@@ -144,7 +124,7 @@ async def google_callback(code: str = Query(...), state: str = Query(None)):
 async def register(user_data: UserRegister, response: Response):
     """Регистрация нового пользователя"""
     try:
-        # Создаем пользователя через db.users
+
         user = await db.users.create_user(
             email=user_data.email,
             password=user_data.password,
@@ -153,34 +133,34 @@ async def register(user_data: UserRegister, response: Response):
 
         print(f"Создан пользователь: {user.id}, {user.email}")
 
-        # Генерируем access токен с user_id для авторизации
+
         access_token = create_access_token(
             data={
                 "sub": user.email,
                 "user_id": user.id,
-                "type": "access",  # Тип токена: access
+                "type": "access",  
             },
-            expires_delta=timedelta(days=30),  # Токен на 30 дней
+            expires_delta=timedelta(days=30), 
         )
 
-        # Генерируем токен верификации email
+  
         verification_token = create_access_token(
             data={
                 "sub": user.email,
                 "user_id": user.id,
-                "type": "verify_email",  # Тип токена: для верификации
+                "type": "verify_email",  
             },
             expires_delta=timedelta(hours=24),
         )
 
-        # Устанавливаем access токен в куки для авторизации
+ 
         response.set_cookie(
             key="token",
             value=access_token,
             httponly=True,
-            secure=False,  # True в production с HTTPS
+            secure=False, 
             samesite="lax",
-            max_age=30 * 24 * 60 * 60,  # 30 дней
+            max_age=30 * 24 * 60 * 60,  
             path="/",
         )
 
@@ -191,8 +171,8 @@ async def register(user_data: UserRegister, response: Response):
             "email": user.email,
             "username": user.username,
             "is_verified": user.is_verified,
-            "verification_token": verification_token,  # Отправляем клиенту для верификации email
-            "access_token": access_token,  # Также возвращаем в ответе (опционально)
+            "verification_token": verification_token,  
+            "access_token": access_token,  
         }
 
     except ValueError as e:
@@ -228,20 +208,20 @@ async def login(user_data: UserLogin, response: Response):
 
         print(f"Пользователь найден: {user.id}, {user.email}")
 
-        # Создаем access токен с user_id
+
         access_token = create_access_token(
             data={"sub": user.email, "user_id": user.id, "type": "access"},
-            expires_delta=timedelta(days=30),  # Токен на 30 дней
+            expires_delta=timedelta(days=30),  
         )
 
-        # Устанавливаем токен в куки
+    
         response.set_cookie(
             key="token",
             value=access_token,
             httponly=True,
-            secure=False,  # True в production с HTTPS
+            secure=False,  
             samesite="lax",
-            max_age=30 * 24 * 60 * 60,  # 30 дней
+            max_age=30 * 24 * 60 * 60, 
             path="/",
         )
 
@@ -265,38 +245,6 @@ async def login(user_data: UserLogin, response: Response):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Внутренняя ошибка сервера",
-        )
-
-
-@router.get("/verify/{token}")
-async def verify_email(
-    token: str,
-):
-    """Подтверждение email по токену"""
-    payload = decode_access_token(token)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Неверный или просроченный токен",
-        )
-
-    email = payload.get("sub")
-    user_id = payload.get("user_id")
-    purpose = payload.get("type")  # Используем type вместо purpose
-
-    if not email or purpose != "verify_email":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Неверный токен"
-        )
-
-    # Подтверждаем email через db.users
-    result = await db.users.verify_user_email(email)
-
-    if result:
-        return {"success": True, "message": "Email успешно подтвержден"}
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден"
         )
 
 
@@ -336,7 +284,6 @@ async def get_current_user(request: Request):
                 detail="Неверный токен: отсутствует user_id",
             )
 
-        # Проверяем тип токена (должен быть access)
         if token_type != "access":
             print(f"Неправильный тип токена: {token_type}")
             raise HTTPException(
@@ -345,7 +292,7 @@ async def get_current_user(request: Request):
 
         print(f"Ищем пользователя с ID: {user_id}")
 
-        # Получаем пользователя через db.users
+
         user = await db.users.get_user_by_id(user_id)
 
         if not user:
@@ -383,7 +330,6 @@ async def get_current_user(request: Request):
 async def logout(response: Response):
     """Выход пользователя (удаление куки)"""
     try:
-        # Удаляем куку с токеном
         response.delete_cookie(key="token", path="/")
         return {"success": True, "message": "Выход выполнен успешно"}
     except Exception as e:

@@ -157,6 +157,26 @@ class WebhookConfig(BaseModel):
         """Проверяем, включены ли вебхуки"""
         return bool(self.url)
 
+class GoogleAuthConfig(BaseModel):
+    """Конфигурация Google OAuth2"""
+    client_id: str = ""
+    client_secret: str = ""
+    auth_url: str = "https://accounts.google.com/o/oauth2/auth"
+    token_url: str = "https://oauth2.googleapis.com/token"
+    user_info_url: str = "https://www.googleapis.com/oauth2/v3/userinfo"
+    redirect_uri: str = "http://localhost:8000/auth/google/callback"
+    
+    @field_validator("client_id", "client_secret")
+    def validate_google_keys(cls, v: str) -> str:
+        """Проверяем обязательные Google ключи"""
+        if not v.strip():
+            raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set")
+        return v.strip()
+    
+    @property
+    def enabled(self) -> bool:
+        """Проверяем, включена ли Google авторизация"""
+        return bool(self.client_id and self.client_secret)
 
 class Config(BaseSettings):
     """Основной класс конфигурации"""
@@ -177,6 +197,7 @@ class Config(BaseSettings):
     activitywatch: ActivityWatchConfig = ActivityWatchConfig()
     email: EmailConfig = EmailConfig()
     webhook: WebhookConfig = WebhookConfig()
+    google: GoogleAuthConfig = GoogleAuthConfig()
     
     @property
     def is_development(self) -> bool:
