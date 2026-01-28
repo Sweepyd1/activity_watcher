@@ -297,29 +297,7 @@
 
             <!-- Создание нового токена -->
             <div class="create-token-section">
-              <h4>Создать новый токен</h4>
-              <div class="form-group">
-                <label for="tokenName">Название токена</label>
-                <input
-                  type="text"
-                  id="tokenName"
-                  v-model="newToken.name"
-                  placeholder="Например: Основной токен"
-                  class="form-input"
-                />
-              </div>
-              <div class="form-group">
-                <label for="expiryDays">Срок действия (дней)</label>
-                <input
-                  type="number"
-                  id="expiryDays"
-                  v-model="newToken.expires_in_days"
-                  min="1"
-                  max="365"
-                  class="form-input"
-                  placeholder="30"
-                />
-              </div>
+             
               <button 
                 class="create-token-btn" 
                 @click="createToken"
@@ -1795,7 +1773,7 @@ onMounted(() => {
 .create-token-section {
   margin-bottom: 24px;
   padding-top: 24px;
-  border-top: 1px solid var(--border-color);
+ 
 }
 
 .create-token-section h4 {

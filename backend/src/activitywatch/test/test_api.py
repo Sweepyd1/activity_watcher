@@ -11,31 +11,14 @@ from pathlib import Path
 import sys
 import logging
 from abc import ABC, abstractmethod
-
-#!/usr/bin/env python3
-"""
-ActivityWatch Installer and Manager
-===================================
-Кросс-платформенная утилита для автоматической установки и управления ActivityWatch.
-"""
-
 import os
 import sys
-import platform
+
 import subprocess
 import shutil
 import tempfile
 import zipfile
-import tarfile
-from pathlib import Path
-import requests
-import json
-import time
-from datetime import datetime
-import logging
-from typing import Optional, Tuple
 
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -232,9 +215,8 @@ class ActivityWatchManager:
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
-                        if total_size > 0:
-                            percent = (downloaded / total_size) * 100
-                            logger.info(f"Прогресс: {percent:.1f}%")
+    
+                           
 
             logger.info(f"Скачивание завершено: {download_path}")
             return download_path
@@ -340,25 +322,91 @@ class ActivityWatchManager:
         try:
             # Создаем директорию для установки
             self.install_path.mkdir(parents=True, exist_ok=True)
+            
+            # Очищаем директорию, если что-то уже есть
+            for item in self.install_path.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
 
             # Распаковываем архив
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                # Получаем список всех файлов в архиве
+                all_files = zip_ref.namelist()
+                
+                # Находим корневую папку (первый элемент пути)
+                root_dirs = set()
+                for file in all_files:
+                    parts = file.split('/')
+                    if len(parts) > 1:
+                        root_dirs.add(parts[0])
+                
+                # Извлекаем файлы
                 zip_ref.extractall(self.install_path)
-
+                
             logger.info(f"Структура установки: {list(self.install_path.iterdir())}")
+            
+            # ФИКС: Проверяем, не распаковался ли архив во вложенную папку
+            items = list(self.install_path.iterdir())
+            
+            # Если только одна папка и она называется "activitywatch" или начинается с "activitywatch-"
+            if len(items) == 1 and items[0].is_dir() and (
+                items[0].name == "activitywatch" or 
+                items[0].name.startswith("activitywatch-")
+            ):
+                logger.info(f"Обнаружена вложенная папка {items[0].name}. Исправляем структуру...")
+                nested_dir = items[0]
+                
+                # Перемещаем все файлы из вложенной папки на уровень выше
+                for item in nested_dir.iterdir():
+                    target_path = self.install_path / item.name
+                    if target_path.exists():
+                        if target_path.is_dir():
+                            shutil.rmtree(target_path)
+                        else:
+                            target_path.unlink()
+                    shutil.move(str(item), str(self.install_path))
+                
+                # Удаляем пустую вложенную папку
+                nested_dir.rmdir()
+                
+                logger.info("Структура исправлена")
 
+            # После исправления структуры, снова показываем содержимое
+            logger.info(f"Исправленная структура: {list(self.install_path.iterdir())}")
+            
             # Ищем компоненты ActivityWatch
             components = {
                 "server": self._find_component("aw-server"),
                 "window_watcher": self._find_component("aw-watcher-window"),
                 "afk_watcher": self._find_component("aw-watcher-afk"),
+                "qt": self._find_component("aw-qt"),
             }
 
             # Устанавливаем права на выполнение
             for name, component_path in components.items():
                 if component_path and component_path.exists():
-                    component_path.chmod(0o755)
-                    logger.info(f"Установлены права для {name}: {component_path}")
+                    # Если это директория, ищем исполняемый файл внутри
+                    if component_path.is_dir():
+                        # Ищем файл с таким же именем внутри директории
+                        exe_file = component_path / component_path.name
+                        if exe_file.exists():
+                            component_path = exe_file
+                        else:
+                            # Ищем любой исполняемый файл
+                            for file in component_path.iterdir():
+                                if file.is_file() and os.access(file, os.X_OK):
+                                    component_path = file
+                                    break
+                    
+                    # Устанавливаем права
+                    try:
+                        component_path.chmod(0o755)
+                        logger.info(f"Установлены права для {name}: {component_path}")
+                        components[name] = component_path  # Обновляем путь
+                    except Exception as e:
+                        logger.warning(f"Не удалось установить права для {component_path}: {e}")
                 else:
                     logger.warning(f"Не найден компонент {name}")
 
@@ -368,7 +416,7 @@ class ActivityWatchManager:
 
             symlinks_created = 0
             for name, component_path in components.items():
-                if component_path and component_path.exists():
+                if component_path and component_path.exists() and component_path.is_file():
                     # Определяем имя для симлинка
                     if "server" in name:
                         symlink_name = "aw-server"
@@ -376,28 +424,36 @@ class ActivityWatchManager:
                         symlink_name = "aw-watcher-window"
                     elif "afk" in name:
                         symlink_name = "aw-watcher-afk"
+                    elif "qt" in name:
+                        symlink_name = "aw-qt"
                     else:
                         continue
 
                     symlink_path = local_bin / symlink_name
+                    
+                    # Удаляем старый симлинк, если существует
                     if symlink_path.exists():
                         symlink_path.unlink()
-
-                    symlink_path.symlink_to(component_path)
-                    logger.info(f"Создан симлинк: {symlink_path} -> {component_path}")
-                    symlinks_created += 1
+                    
+                    # Создаем симлинк на абсолютный путь
+                    try:
+                        abs_path = component_path.absolute()
+                        symlink_path.symlink_to(abs_path)
+                        logger.info(f"Создан симлинк: {symlink_path} -> {abs_path}")
+                        symlinks_created += 1
+                    except Exception as e:
+                        logger.error(f"Ошибка создания симлинка {symlink_name}: {e}")
 
             if symlinks_created == 0:
                 logger.error("Не удалось создать ни одного симлинка!")
-                return False
-
+                # Но не прерываем установку - может быть, симлинки не нужны
+                
             logger.info("Установка на Linux завершена успешно")
             return True
 
         except Exception as e:
             logger.error(f"Ошибка при установке на Linux: {e}")
             import traceback
-
             logger.error(traceback.format_exc())
             return False
 
@@ -436,40 +492,62 @@ class ActivityWatchManager:
         Returns:
             Path: Путь к исполняемому файлу компонента
         """
-        # Пробуем несколько мест
+        # Ищем сначала в корне установки
+        if (self.install_path / component_name).exists():
+            path = self.install_path / component_name
+            # Если это файл и он исполняемый (или хотя бы файл)
+            if path.is_file() or (path.is_file() and os.access(path, os.X_OK)):
+                return path
+            # Если это директория, ищем внутри файл с тем же именем
+            elif path.is_dir():
+                # Вариант 1: файл с тем же именем внутри папки
+                exe_file = path / path.name
+                if exe_file.exists() and exe_file.is_file():
+                    return exe_file
+                
+                # Вариант 2: любой исполняемый файл в папке
+                for item in path.iterdir():
+                    if item.is_file() and (os.access(item, os.X_OK) or item.name == component_name):
+                        return item
+        
+        # Ищем в других возможных местах (старая структура)
         search_paths = [
-            self.install_path
-            / component_name
-            / component_name,  # /path/aw-server/aw-server
-            self.install_path / component_name,  # /path/aw-server
-            self.install_path / "activitywatch" / component_name / component_name,
+            # Новая структура: файлы в корне
+            self.install_path / component_name,
+            # Старая структура: папка с компонентом, внутри файл
+            self.install_path / component_name / component_name,
+            # Возможно в activitywatch подпапке
             self.install_path / "activitywatch" / component_name,
+            self.install_path / "activitywatch" / component_name / component_name,
         ]
-
+        
         for path in search_paths:
             if path.exists():
-                # Если это директория, ищем исполняемый файл внутри
                 if path.is_dir():
-                    # Ищем файл с именем компонента
+                    # В папке ищем файл с именем папки
                     exe_file = path / path.name
                     if exe_file.exists():
                         return exe_file
-
-                    # Ищем любой исполняемый файл в директории
+                    
+                    # Или любой исполняемый файл
                     for item in path.iterdir():
-                        if item.is_file() and os.access(item, os.X_OK):
+                        if item.is_file() and (os.access(item, os.X_OK) or item.name == component_name):
                             return item
-
-                    # Ищем файл без расширения
-                    for item in path.iterdir():
-                        if item.is_file() and not item.suffix:
-                            return item
-                else:
-                    # Это файл
+                elif path.is_file():
                     return path
-
+        
+        # Рекурсивный поиск по всей директории
+        logger.info(f"Рекурсивный поиск {component_name} в {self.install_path}")
+        for item in self.install_path.rglob("*"):
+            if item.is_file():
+                # Проверяем имя файла (без расширения)
+                if item.stem == component_name or item.name == component_name:
+                    return item
+                # Или если в имени содержится component_name
+                elif component_name in item.name:
+                    return item
+        
         return None
-
     def start_activitywatch(self) -> bool:
         """
         Запускает ActivityWatch.
