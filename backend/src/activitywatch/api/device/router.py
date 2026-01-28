@@ -3,12 +3,19 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
-from src.activitywatch.schemas.devices.schema import CreateDeviceRequest, CreateTokenRequest, DeviceResponse, RegisterDeviceRequest, TokenResponse
+from src.activitywatch.schemas.devices.schema import (
+    CreateDeviceRequest,
+    CreateTokenRequest,
+    DeviceResponse,
+    RegisterDeviceRequest,
+    TokenResponse,
+)
 from src.activitywatch.loader import db
 from src.activitywatch.database.models import DevicePlatform, TokenPermission
 from src.activitywatch.core.security import get_current_user
 
 router = APIRouter(prefix="/devices", tags=["devices"])
+
 
 @router.post("/new", response_model=DeviceResponse)
 async def create_device(
@@ -18,8 +25,6 @@ async def create_device(
     device = await db.devices.new_device(
         user_id=current_user["id"],
         device_name=request.device_name,
-        platform=request.platform,
-        platform_version=request.platform_version,
     )
     return device
 

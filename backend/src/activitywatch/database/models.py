@@ -540,89 +540,6 @@ class ActivityEvent(Base):
         return self.duration_seconds / 3600
 
 
-# Дополнительные таблицы (для будущего расширения)
-class DailySummary(Base):
-    """Ежедневные сводки активности"""
-
-    __tablename__ = "daily_summaries"
-    __table_args__ = (
-        UniqueConstraint("device_id", "date", name="uq_daily_device_date"),
-        {"comment": "Ежедневные сводки активности"},
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    device_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("devices.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    date: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, index=True, comment="Дата сводки"
-    )
-    total_time: Mapped[float] = mapped_column(
-        Float, default=0.0, nullable=False, comment="Общее время активности (секунды)"
-    )
-    apps_summary: Mapped[Dict[str, Any]] = mapped_column(
-        JSON,
-        nullable=False,
-        default=dict,
-        server_default=text("'{}'::jsonb"),
-        comment="Сводка по приложениям",
-    )
-    categories_summary: Mapped[Dict[str, Any]] = mapped_column(
-        JSON,
-        nullable=False,
-        default=dict,
-        server_default=text("'{}'::jsonb"),
-        comment="Сводка по категориям",
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-    )
-
-    device: Mapped["Device"] = relationship("Device", lazy="joined")
-
-
-class AuditLog(Base):
-    """Логи аудита (для отладки и безопасности)"""
-
-    __tablename__ = "audit_logs"
-    __table_args__ = {"comment": "Логи аудита системы"}
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    device_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True
-    )
-    action: Mapped[str] = mapped_column(String(100), nullable=False, comment="Действие")
-    details: Mapped[Dict[str, Any]] = mapped_column(
-        JSON,
-        nullable=False,
-        default=dict,
-        server_default=text("'{}'::jsonb"),
-        comment="Детали действия",
-    )
-    ip_address: Mapped[Optional[str]] = mapped_column(
-        String(45), nullable=True, comment="IP адрес"
-    )
-    user_agent: Mapped[Optional[str]] = mapped_column(
-        Text, nullable=True, comment="User Agent"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-    )
-
-    user: Mapped[Optional["User"]] = relationship("User", lazy="joined")
-    device: Mapped[Optional["Device"]] = relationship("Device", lazy="joined")
-
-
 __all__ = [
     "Base",
     "User",
@@ -630,8 +547,6 @@ __all__ = [
     "ApiToken",
     "SyncSession",
     "ActivityEvent",
-    "DailySummary",
-    "AuditLog",
     "DevicePlatform",
     "SyncStatus",
     "TokenPermission",

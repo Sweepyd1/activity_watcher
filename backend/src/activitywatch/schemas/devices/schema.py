@@ -9,8 +9,6 @@ from src.activitywatch.database.models import DevicePlatform, TokenPermission
 
 class CreateDeviceRequest(BaseModel):
     device_name: str
-    platform: DevicePlatform = DevicePlatform.OTHER
-    platform_version: str = None
 
 
 class CreateTokenRequest(BaseModel):

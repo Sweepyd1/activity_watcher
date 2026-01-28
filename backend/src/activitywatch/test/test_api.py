@@ -922,20 +922,20 @@ def main():
         print("  0. Выход")
 
         try:
-            token = input("Введите токен: ")
+            # token = input("Введите токен: ")
 
-            payload = {
-                "token": token,
-                "device_id": "test",
-                "platform_version": "test",
-                "client_version": "test",
-            }
+            # payload = {
+            #     "token": token,
+            #     "device_id": "test",
+            #     "platform_version": "test",
+            #     "client_version": "test",
+            # }
 
-            logger.info(f"Отправка запроса регистрации на /devices/register")
+            # logger.info(f"Отправка запроса регистрации на /devices/register")
 
-            response = requests.post(
-                f"http://localhost:8000/devices/register", json=payload, timeout=10
-            )
+            # response = requests.post(
+            #     f"http://localhost:8000/devices/register", json=payload, timeout=10
+            # )
 
             choice = input("\nВыберите действие (0-5): ").strip()
 
@@ -1534,7 +1534,9 @@ class ActivityWatchClient:
 
         try:
             response = self.session.post(
-                f"{self.server_url}/receive_incremental", json=payload, timeout=15
+                f"{self.server_url}/tracker/receive_incremental",
+                json=payload,
+                timeout=15,
             )
 
             if response.status_code == 200:

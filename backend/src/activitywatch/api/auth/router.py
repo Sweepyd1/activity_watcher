@@ -1,4 +1,4 @@
-from datetime import  timedelta
+from datetime import timedelta
 import re
 import uuid
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
@@ -11,7 +11,6 @@ from src.activitywatch.loader import db
 from src.activitywatch.schemas.auth.schema import (
     UserRegister,
     UserLogin,
-
 )
 from src.activitywatch.core.security import create_access_token, decode_access_token
 from src.activitywatch.config import cfg
@@ -20,10 +19,10 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
 @router.get("/google")
-async def google_auth(request: Request):  
+async def google_auth(request: Request):
     params = {
         "client_id": cfg.google.client_id,
-        "redirect_uri": cfg.google.redirect_uri,  
+        "redirect_uri": cfg.google.redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
         "access_type": "offline",
@@ -32,7 +31,7 @@ async def google_auth(request: Request):
     }
     auth_url = f"{cfg.google.auth_url}?{urlencode(params)}"
 
-    return RedirectResponse(url=auth_url)  
+    return RedirectResponse(url=auth_url)
 
 
 @router.get("/google/callback")
@@ -85,7 +84,7 @@ async def google_callback(code: str = Query(...), state: str = Query(None)):
             password = str(uuid.uuid4())
             user = await db.users.create_user(
                 email=email,
-                password=password, 
+                password=password,
                 username=username,
             )
 
@@ -124,7 +123,6 @@ async def google_callback(code: str = Query(...), state: str = Query(None)):
 async def register(user_data: UserRegister, response: Response):
     """Регистрация нового пользователя"""
     try:
-
         user = await db.users.create_user(
             email=user_data.email,
             password=user_data.password,
@@ -133,34 +131,31 @@ async def register(user_data: UserRegister, response: Response):
 
         print(f"Создан пользователь: {user.id}, {user.email}")
 
-
         access_token = create_access_token(
             data={
                 "sub": user.email,
                 "user_id": user.id,
-                "type": "access",  
+                "type": "access",
             },
-            expires_delta=timedelta(days=30), 
+            expires_delta=timedelta(days=30),
         )
 
-  
         verification_token = create_access_token(
             data={
                 "sub": user.email,
                 "user_id": user.id,
-                "type": "verify_email",  
+                "type": "verify_email",
             },
             expires_delta=timedelta(hours=24),
         )
 
- 
         response.set_cookie(
             key="token",
             value=access_token,
             httponly=True,
-            secure=False, 
+            secure=False,
             samesite="lax",
-            max_age=30 * 24 * 60 * 60,  
+            max_age=30 * 24 * 60 * 60,
             path="/",
         )
 
@@ -171,8 +166,8 @@ async def register(user_data: UserRegister, response: Response):
             "email": user.email,
             "username": user.username,
             "is_verified": user.is_verified,
-            "verification_token": verification_token,  
-            "access_token": access_token,  
+            "verification_token": verification_token,
+            "access_token": access_token,
         }
 
     except ValueError as e:
@@ -208,20 +203,18 @@ async def login(user_data: UserLogin, response: Response):
 
         print(f"Пользователь найден: {user.id}, {user.email}")
 
-
         access_token = create_access_token(
             data={"sub": user.email, "user_id": user.id, "type": "access"},
-            expires_delta=timedelta(days=30),  
+            expires_delta=timedelta(days=30),
         )
 
-    
         response.set_cookie(
             key="token",
             value=access_token,
             httponly=True,
-            secure=False,  
+            secure=False,
             samesite="lax",
-            max_age=30 * 24 * 60 * 60, 
+            max_age=30 * 24 * 60 * 60,
             path="/",
         )
 
@@ -291,7 +284,6 @@ async def get_current_user(request: Request):
             )
 
         print(f"Ищем пользователя с ID: {user_id}")
-
 
         user = await db.users.get_user_by_id(user_id)
 

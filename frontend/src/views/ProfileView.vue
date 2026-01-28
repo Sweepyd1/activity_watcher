@@ -224,28 +224,8 @@
             />
             <span v-if="addDeviceError.device_name" class="error-text">{{ addDeviceError.device_name }}</span>
           </div>
-          <div class="form-group">
-            <label for="deviceType">Платформа</label>
-            <select id="deviceType" v-model="newDevice.platform" class="form-select">
-              <option value="windows">Windows</option>
-              <option value="macos">macOS</option>
-              <option value="linux">Linux</option>
-              <option value="android">Android</option>
-              <option value="ios">iOS</option>
-              <option value="other">Другое</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="osVersion">Версия ОС</label>
-            <input
-              type="text"
-              id="osVersion"
-              v-model="newDevice.platform_version"
-              placeholder="Например: Windows 11, macOS 14.2"
-              class="form-input"
-              @keyup.enter="addDevice"
-            />
-          </div>
+         
+      
         </div>
         <div class="modal-footer">
           <button class="modal-btn cancel" @click="showAddDeviceModal = false">
