@@ -181,76 +181,30 @@ class User(Base):
 
 
 class Device(Base):
-    """Устройства пользователей"""
-
     __tablename__ = "devices"
     __table_args__ = (
         UniqueConstraint("user_id", "device_id", name="uq_user_device"),
         {"comment": "Устройства пользователей для синхронизации"},
     )
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        autoincrement=True,
-        comment="Идентификатор устройства в системе",
-    )
-    user_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-        comment="ID пользователя-владельца",
-    )
-    device_id: Mapped[str] = mapped_column(
-        String(255),
-        nullable=True,
-        comment="Уникальный идентификатор устройства (hostname)",
-    )
-    device_name: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        default="Unnamed Device",
-        comment="Человеко-читаемое имя устройства",
-    )
-    platform: Mapped[DevicePlatform] = mapped_column(
-        Enum(DevicePlatform, native_enum=False),
-        nullable=False,
-        default=DevicePlatform.OTHER,
-        comment="Платформа устройства",
-    )
-    platform_version: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True, comment="Версия платформы/ОС"
-    )
-    client_version: Mapped[Optional[str]] = mapped_column(
-        String(50), nullable=True, comment="Версия клиента ActivityWatch Sync"
-    )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, default=True, nullable=False, comment="Активно ли устройство"
-    )
-    sync_enabled: Mapped[bool] = mapped_column(
-        Boolean,
-        default=True,
-        nullable=False,
-        comment="Включена ли синхронизация для устройства",
-    )
-    last_seen: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, comment="Время последней активности"
-    )
-    first_seen: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        server_default=text("CURRENT_TIMESTAMP"),
-        comment="Время первого подключения",
-    )
-    meta_data: Mapped[Dict[str, Any]] = mapped_column(
-        JSON,
-        nullable=False,
-        default=dict,
-        server_default=text("'{}'::jsonb"),
-        comment="Дополнительная информация об устройстве",
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String(255), nullable=True, comment="Уникальный UUID устройства")
+    device_name: Mapped[str] = mapped_column(String(255), nullable=False, default="Unnamed Device")
+    platform: Mapped[DevicePlatform] = mapped_column(Enum(DevicePlatform, native_enum=False), nullable=False, default=DevicePlatform.OTHER)
+    platform_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    platform_name: Mapped[str] = mapped_column(String(255), nullable=False, default="Unnamed Device")
+    hostname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    system: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    # ✅ НОВЫЕ ПОЛЯ из клиента
+    client_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, comment="Версия клиентского ПО")
+    
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    meta_data: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="devices", lazy="joined")
@@ -272,13 +226,6 @@ class Device(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-
-    # @validates("device_id")
-    # def validate_device_id(self, key: str, value: str) -> str:
-    #     """Валидация device_id"""
-    #     if not value or len(value) > 255:
-    #         raise ValueError("Device ID must be between 1 and 255 characters")
-    #     return value
 
     def update_last_seen(self):
         """Обновляет время последней активности"""
@@ -323,13 +270,7 @@ class ApiToken(Base):
         nullable=False,
         comment="Название токена (например, 'Основной токен')",
     )
-    permissions: Mapped[List[str]] = mapped_column(
-        ARRAY(String(50)),
-        nullable=False,
-        default=list,
-        server_default=text("ARRAY[]::varchar[]"),
-        comment="Разрешения токена",
-    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -337,16 +278,7 @@ class ApiToken(Base):
         server_default=text("CURRENT_TIMESTAMP"),
         comment="Дата создания",
     )
-    expires_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, comment="Дата истечения срока действия"
-    )
-    last_used: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, comment="Время последнего использования"
-    )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, default=True, nullable=False, comment="Активен ли токен"
-    )
-
+ 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="tokens", lazy="joined")
     device: Mapped["Device"] = relationship(
@@ -464,7 +396,6 @@ class ActivityEvent(Base):
     __table_args__ = (
         Index("ix_events_device_time", "device_id", "timestamp"),
         Index("ix_events_app", "app"),
-        Index("ix_events_category", "category"),
         UniqueConstraint("device_id", "event_id", "timestamp", name="uq_event_unique"),
         {"comment": "События активности пользователей"},
     )
@@ -502,9 +433,6 @@ class ActivityEvent(Base):
     )
     url: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True, comment="URL (для браузеров)"
-    )
-    category: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True, comment="Категория активности"
     )
     data: Mapped[Dict[str, Any]] = mapped_column(
         JSON,

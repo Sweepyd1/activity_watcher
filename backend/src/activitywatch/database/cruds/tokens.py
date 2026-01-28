@@ -26,19 +26,13 @@ class ApiTokensCRUD:
         user_id: int,
         device_id: int,
         token_name: str = "Основной токен",
-        permissions: List[str] = None,
-        expires_in_days: int = 30,
+
     ) -> Dict[str, Any]:
         """Создать новый токен для устройства"""
 
-        # Генерируем токен
+
         raw_token = f"tt_{uuid.uuid4().hex}"
         token_hash = self._hash_token(raw_token)
-
-        # Рассчитываем срок действия
-        expires_at = None
-        if expires_in_days:
-            expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
 
         async with self.db.get_session() as session:
             token = ApiToken(
@@ -46,9 +40,6 @@ class ApiTokensCRUD:
                 device_id=device_id,
                 token_hash=token_hash,
                 name=token_name,
-                permissions=permissions,
-                expires_at=expires_at,
-                is_active=True,
             )
             session.add(token)
             await session.commit()
@@ -56,12 +47,11 @@ class ApiTokensCRUD:
 
             return {
                 "id": token.id,
-                "token": raw_token,  # Возвращаем только один раз!
+                "token": raw_token,  
                 "name": token.name,
                 "device_id": token.device_id,
                 "created_at": token.created_at,
-                "expires_at": token.expires_at,
-                "permissions": token.permissions,
+
             }
 
     async def validate_token(self, token: str) -> Optional[ApiToken]:
@@ -70,24 +60,13 @@ class ApiTokensCRUD:
 
         async with self.db.get_session() as session:
             stmt = select(ApiToken).where(
-                ApiToken.token_hash == token_hash, ApiToken.is_active == True
+                ApiToken.token_hash == token_hash
             )
             result = await session.execute(stmt)
             api_token = result.scalar_one_or_none()
 
             if not api_token:
                 return None
-
-            # Проверяем срок действия
-            if api_token.expires_at and api_token.expires_at < datetime.now(
-                timezone.utc
-            ):
-                return None
-
-            # Обновляем время последнего использования
-            api_token.last_used = datetime.now(timezone.utc)
-            await session.commit()
-            await session.refresh(api_token)
 
             return api_token
 
@@ -111,10 +90,7 @@ class ApiTokensCRUD:
             result = await session.execute(stmt)
             token = result.scalar_one_or_none()
 
-            if token:
-                token.is_active = False
-                await session.commit()
-                return True
+        
 
             return False
 

@@ -30,6 +30,7 @@ class ActivityEventsCRUD:
         async with self.db.get_session() as session:        
             # Извлекаем данные из события
             event_id = event_data.get("id") or str(uuid.uuid4())
+            event_id = str(event_id)
             timestamp = event_data.get("timestamp")
             duration = event_data.get("duration", 0)
             data = event_data.get("data", {})
@@ -74,7 +75,6 @@ class ActivityEventsCRUD:
                 app=app,
                 window_title=window_title,
                 url=url,
-                category="test",
                 data=data
             )
             

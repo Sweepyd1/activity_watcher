@@ -66,29 +66,34 @@ class DevicesCRUD:
         self,
         device_id: int,
         real_device_id: str,
-        platform_version: str = None,
-        client_version: str = None,
+        device_name: str,
+        system: str,
+        hostname: str,
+        platform_version: Optional[str] = None,
+        client_version: Optional[str] = None,
+
     ) -> Device:
-        """Обновить регистрацию устройства (вызывается клиентом)"""
         async with self.db.get_session() as session:
-            # Находим устройство
             stmt = select(Device).where(Device.id == device_id)
             result = await session.execute(stmt)
             device = result.scalar_one()
 
-            if not device:
-                return None
-
-            # Обновляем данные
+            # ✅ ЗАПОЛНЯЕМ ВСЕ ПОЛЯ
             device.device_id = real_device_id
+            device.system = system
+            device.hostname = hostname
             device.platform_version = platform_version or device.platform_version
             device.client_version = client_version
+            device.platform_name = device_name  # дублируем для совместимости
+            
+            # Meta data
+            device.meta_data.update({
+           
+                "registered_at": datetime.now(timezone.utc).isoformat(),
+            })
+
             device.last_seen = datetime.now(timezone.utc)
             device.is_active = True
-
-            # Если first_seen не установлен (для устройств созданных через веб)
-            if not device.first_seen:
-                device.first_seen = datetime.now(timezone.utc)
 
             await session.commit()
             await session.refresh(device)
@@ -125,18 +130,12 @@ class DevicesCRUD:
                 await session.refresh(device)
 
             return device
-    async def find_device_by_identifier(
-        self,
-        device_identifier: str
-    ) -> Optional[Device]:
+    async def find_device_by_identifier(self, device_identifier: str) -> Optional[Device]:
+        """Ищет устройство по device_id (строка!)"""
         async with self.db.get_session() as session:
-            
-            
             stmt = select(Device).where(
-                or_(
-                    Device.device_id == device_identifier,
-                    Device.device_name == device_identifier
-                )
+                Device.device_id == device_identifier  # ← Строка!
             )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
+

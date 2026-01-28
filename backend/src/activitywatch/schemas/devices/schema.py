@@ -14,15 +14,18 @@ class CreateDeviceRequest(BaseModel):
 class CreateTokenRequest(BaseModel):
     device_id: int
     token_name: str = "Основной токен"
-    permissions: List[TokenPermission] = None
-    expires_in_days: int = 30
+
 
 
 class RegisterDeviceRequest(BaseModel):
     token: str
-    device_id: str = None  # заглушка
-    platform_version: str = None
-    client_version: str = None
+    device_id: str
+    system: str
+    hostname: str
+    device_name: Optional[str] = None
+    platform_version: Optional[str] = None
+    client_version: Optional[str] = None
+
 
 
 class DeviceResponse(BaseModel):
@@ -48,5 +51,4 @@ class TokenResponse(BaseModel):
     name: str
     device_id: int
     created_at: datetime
-    expires_at: datetime = None
-    permissions: List[str]
+

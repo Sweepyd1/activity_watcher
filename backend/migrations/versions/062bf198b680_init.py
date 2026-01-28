@@ -1,18 +1,18 @@
 """init
 
-Revision ID: b123cd33c20f
+Revision ID: 062bf198b680
 Revises: 
-Create Date: 2026-01-28 18:55:14.260289
+Create Date: 2026-01-28 23:46:43.898153
 
 """
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+
 
 # revision identifiers, used by Alembic.
-revision: str = 'b123cd33c20f'
+revision: str = '062bf198b680'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -37,18 +37,21 @@ def upgrade() -> None:
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
     op.create_table('devices',
-    sa.Column('id', sa.Integer(), autoincrement=True, nullable=False, comment='Идентификатор устройства в системе'),
-    sa.Column('user_id', sa.Integer(), nullable=False, comment='ID пользователя-владельца'),
-    sa.Column('device_id', sa.String(length=255), nullable=True, comment='Уникальный идентификатор устройства (hostname)'),
-    sa.Column('device_name', sa.String(length=255), nullable=False, comment='Человеко-читаемое имя устройства'),
-    sa.Column('platform', sa.Enum('WINDOWS', 'LINUX', 'MACOS', 'ANDROID', 'IOS', 'OTHER', name='deviceplatform', native_enum=False), nullable=False, comment='Платформа устройства'),
-    sa.Column('platform_version', sa.String(length=100), nullable=True, comment='Версия платформы/ОС'),
-    sa.Column('client_version', sa.String(length=50), nullable=True, comment='Версия клиента ActivityWatch Sync'),
-    sa.Column('is_active', sa.Boolean(), nullable=False, comment='Активно ли устройство'),
-    sa.Column('sync_enabled', sa.Boolean(), nullable=False, comment='Включена ли синхронизация для устройства'),
-    sa.Column('last_seen', sa.DateTime(timezone=True), nullable=True, comment='Время последней активности'),
-    sa.Column('first_seen', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False, comment='Время первого подключения'),
-    sa.Column('meta_data', sa.JSON(), server_default=sa.text("'{}'::jsonb"), nullable=False, comment='Дополнительная информация об устройстве'),
+    sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('device_id', sa.String(length=255), nullable=True, comment='Уникальный UUID устройства'),
+    sa.Column('device_name', sa.String(length=255), nullable=False),
+    sa.Column('platform', sa.Enum('WINDOWS', 'LINUX', 'MACOS', 'ANDROID', 'IOS', 'OTHER', name='deviceplatform', native_enum=False), nullable=False),
+    sa.Column('platform_version', sa.String(length=100), nullable=True),
+    sa.Column('platform_name', sa.String(length=255), nullable=False),
+    sa.Column('hostname', sa.String(length=255), nullable=True),
+    sa.Column('system', sa.String(length=255), nullable=True),
+    sa.Column('client_version', sa.String(length=50), nullable=True, comment='Версия клиентского ПО'),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('sync_enabled', sa.Boolean(), nullable=False),
+    sa.Column('last_seen', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('first_seen', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+    sa.Column('meta_data', sa.JSON(), server_default=sa.text("'{}'::jsonb"), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('user_id', 'device_id', name='uq_user_device'),
@@ -61,11 +64,7 @@ def upgrade() -> None:
     sa.Column('device_id', sa.Integer(), nullable=True, comment='ID устройства'),
     sa.Column('token_hash', sa.String(length=255), nullable=False, comment='Хэш токена (никогда не храним сам токен!)'),
     sa.Column('name', sa.String(length=100), nullable=False, comment="Название токена (например, 'Основной токен')"),
-    sa.Column('permissions', postgresql.ARRAY(sa.String(length=50)), server_default=sa.text('ARRAY[]::varchar[]'), nullable=False, comment='Разрешения токена'),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False, comment='Дата создания'),
-    sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True, comment='Дата истечения срока действия'),
-    sa.Column('last_used', sa.DateTime(timezone=True), nullable=True, comment='Время последнего использования'),
-    sa.Column('is_active', sa.Boolean(), nullable=False, comment='Активен ли токен'),
     sa.ForeignKeyConstraint(['device_id'], ['devices.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
@@ -76,35 +75,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_api_tokens_device_id'), 'api_tokens', ['device_id'], unique=False)
     op.create_index(op.f('ix_api_tokens_user_id'), 'api_tokens', ['user_id'], unique=False)
     op.create_index('ix_tokens_token_hash', 'api_tokens', ['token_hash'], unique=False)
-    op.create_table('audit_logs',
-    sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=True),
-    sa.Column('device_id', sa.Integer(), nullable=True),
-    sa.Column('action', sa.String(length=100), nullable=False, comment='Действие'),
-    sa.Column('details', sa.JSON(), server_default=sa.text("'{}'::jsonb"), nullable=False, comment='Детали действия'),
-    sa.Column('ip_address', sa.String(length=45), nullable=True, comment='IP адрес'),
-    sa.Column('user_agent', sa.Text(), nullable=True, comment='User Agent'),
-    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
-    sa.ForeignKeyConstraint(['device_id'], ['devices.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id'),
-    comment='Логи аудита системы'
-    )
-    op.create_table('daily_summaries',
-    sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-    sa.Column('device_id', sa.Integer(), nullable=False),
-    sa.Column('date', sa.DateTime(timezone=True), nullable=False, comment='Дата сводки'),
-    sa.Column('total_time', sa.Float(), nullable=False, comment='Общее время активности (секунды)'),
-    sa.Column('apps_summary', sa.JSON(), server_default=sa.text("'{}'::jsonb"), nullable=False, comment='Сводка по приложениям'),
-    sa.Column('categories_summary', sa.JSON(), server_default=sa.text("'{}'::jsonb"), nullable=False, comment='Сводка по категориям'),
-    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
-    sa.ForeignKeyConstraint(['device_id'], ['devices.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('device_id', 'date', name='uq_daily_device_date'),
-    comment='Ежедневные сводки активности'
-    )
-    op.create_index(op.f('ix_daily_summaries_date'), 'daily_summaries', ['date'], unique=False)
-    op.create_index(op.f('ix_daily_summaries_device_id'), 'daily_summaries', ['device_id'], unique=False)
     op.create_table('sync_sessions',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False, comment='Идентификатор сессии'),
     sa.Column('device_id', sa.Integer(), nullable=False, comment='ID устройства'),
@@ -132,7 +102,6 @@ def upgrade() -> None:
     sa.Column('app', sa.String(length=255), nullable=False, comment='Название приложения'),
     sa.Column('window_title', sa.Text(), nullable=True, comment='Заголовок окна'),
     sa.Column('url', sa.Text(), nullable=True, comment='URL (для браузеров)'),
-    sa.Column('category', sa.String(length=100), nullable=True, comment='Категория активности'),
     sa.Column('data', sa.JSON(), server_default=sa.text("'{}'::jsonb"), nullable=False, comment='Полные данные события в формате JSON'),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False, comment='Время создания записи в БД'),
     sa.ForeignKeyConstraint(['device_id'], ['devices.id'], ondelete='CASCADE'),
@@ -144,7 +113,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_activity_events_device_id'), 'activity_events', ['device_id'], unique=False)
     op.create_index(op.f('ix_activity_events_timestamp'), 'activity_events', ['timestamp'], unique=False)
     op.create_index('ix_events_app', 'activity_events', ['app'], unique=False)
-    op.create_index('ix_events_category', 'activity_events', ['category'], unique=False)
     op.create_index('ix_events_device_time', 'activity_events', ['device_id', 'timestamp'], unique=False)
     # ### end Alembic commands ###
 
@@ -153,7 +121,6 @@ def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_index('ix_events_device_time', table_name='activity_events')
-    op.drop_index('ix_events_category', table_name='activity_events')
     op.drop_index('ix_events_app', table_name='activity_events')
     op.drop_index(op.f('ix_activity_events_timestamp'), table_name='activity_events')
     op.drop_index(op.f('ix_activity_events_device_id'), table_name='activity_events')
@@ -161,10 +128,6 @@ def downgrade() -> None:
     op.drop_index('ix_sync_sessions_device_time', table_name='sync_sessions')
     op.drop_index(op.f('ix_sync_sessions_device_id'), table_name='sync_sessions')
     op.drop_table('sync_sessions')
-    op.drop_index(op.f('ix_daily_summaries_device_id'), table_name='daily_summaries')
-    op.drop_index(op.f('ix_daily_summaries_date'), table_name='daily_summaries')
-    op.drop_table('daily_summaries')
-    op.drop_table('audit_logs')
     op.drop_index('ix_tokens_token_hash', table_name='api_tokens')
     op.drop_index(op.f('ix_api_tokens_user_id'), table_name='api_tokens')
     op.drop_index(op.f('ix_api_tokens_device_id'), table_name='api_tokens')
