@@ -922,6 +922,21 @@ def main():
         print("  0. Выход")
 
         try:
+            token = input("Введите токен: ")
+
+            payload = {
+                "token": token,
+                "device_id": "test",
+                "platform_version": "test",
+                "client_version": "test",
+            }
+
+            logger.info(f"Отправка запроса регистрации на /devices/register")
+
+            response = requests.post(
+                f"http://localhost:8000/devices/register", json=payload, timeout=10
+            )
+
             choice = input("\nВыберите действие (0-5): ").strip()
 
             if choice == "1":

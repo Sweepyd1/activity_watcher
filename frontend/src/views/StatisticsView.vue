@@ -170,43 +170,7 @@
         </div>
       </div>
 
-      <!-- Тепловая карта -->
-      <div class="heatmap-container">
-        <div class="heatmap-header">
-          <h3>Тепловая карта активности</h3>
-          <div class="heatmap-legend">
-            <div class="legend-item">
-              <div class="legend-color low"></div>
-              <span>Низкая</span>
-            </div>
-            <div class="legend-item">
-              <div class="legend-color medium"></div>
-              <span>Средняя</span>
-            </div>
-            <div class="legend-item">
-              <div class="legend-color high"></div>
-              <span>Высокая</span>
-            </div>
-          </div>
-        </div>
-        <div class="heatmap">
-          <div class="heatmap-grid">
-            <div class="time-labels">
-              <div v-for="hour in hours" :key="hour" class="time-label">
-                {{ hour }}
-              </div>
-            </div>
-            <div class="heatmap-cells">
-              <div v-for="cell in heatmapData" :key="cell.id" class="heatmap-cell" :class="cell.intensity"></div>
-            </div>
-            <div class="day-labels">
-              <div v-for="day in days" :key="day" class="day-label">
-                {{ day }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+
     </div>
   </div>
 </template>

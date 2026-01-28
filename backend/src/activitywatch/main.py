@@ -5,12 +5,12 @@ from typing import List, Dict
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from src.activitywatch.api.auth.router import router as auth_router
+from src.activitywatch.api.device.router import router as device_router
 
 app = FastAPI(title="ActivityWatch Receiver", version="1.0")
 app.include_router(auth_router)
-origins = [
-    "*"
-]
+app.include_router(device_router)
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,6 +21,7 @@ app.add_middleware(
 )
 received_data = []
 
+
 @app.get("/")
 async def root():
     return {
@@ -28,11 +29,10 @@ async def root():
         "endpoints": {
             "POST /receive": "Принять данные из ActivityWatch",
             "GET /data": "Посмотреть все полученные данные",
-            "GET /clear": "Очистить данные"
+            "GET /clear": "Очистить данные",
         },
-        "received_count": len(received_data)
+        "received_count": len(received_data),
     }
-
 
 
 if __name__ == "__main__":
