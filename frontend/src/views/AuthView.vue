@@ -383,10 +383,14 @@ const handleLogin = async () => {
   }
 }
 
-// Google OAuth
-const signInWithGoogle = () => {
-  showInfoAlert('Внимание', 'Авторизация через Google в разработке')
-}
+// В AuthView.vue, замените метод signInWithGoogle:
+const signInWithGoogle = async () => {
+   window.location.href = 'http://localhost:8000/auth/google'
+  
+          
+      
+
+};
 </script>
 
 <style scoped>

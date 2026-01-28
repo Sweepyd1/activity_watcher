@@ -1,9 +1,13 @@
 # activitywatch/api/routers/auth.py
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+import re
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from typing import Dict, Any
-
+import httpx
+from urllib.parse import urlencode
+from fastapi.responses import RedirectResponse
 from src.activitywatch.loader import db
 from src.activitywatch.schemas.auth.schema import (
     UserRegister,
@@ -14,6 +18,126 @@ from src.activitywatch.schemas.auth.schema import (
 from src.activitywatch.core.security import create_access_token, decode_access_token
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
+
+
+# Конфигурация Google OAuth (вынесите в настройки/конфиг)
+GOOGLE_CLIENT_ID = (
+    "399576290963-mea5q8ddssadv8ta65vo6o3q3jl8rmpf.apps.googleusercontent.com"
+)
+GOOGLE_CLIENT_SECRET = "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"
+GOOGLE_REDIRECT_URI = "http://localhost:8000/auth/google/callback"  # Для dev
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USER_INFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+
+@router.get("/google")
+async def google_auth(request: Request):  # ← ДОБАВЬ Request!
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,  # http://localhost:8000/auth/google/callback
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "select_account",
+        "state": "random_state_string",
+    }
+    auth_url = f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
+
+    # Редирект на Google (важно для CORS!)
+    return RedirectResponse(url=auth_url)  # ← ИЗМЕНИ НА ЭТО!
+
+
+@router.get("/google/callback")
+async def google_callback(code: str = Query(...), state: str = Query(None)):
+    """Обработка callback от Google"""
+    try:
+        # 1. Обмен code на access_token (без изменений)
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(
+                GOOGLE_TOKEN_URL,
+                data={
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": GOOGLE_REDIRECT_URI,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+
+            if token_response.status_code != 200:
+                raise HTTPException(
+                    status_code=400, detail=f"Ошибка токена: {token_response.text}"
+                )
+
+            tokens = token_response.json()
+            access_token = tokens["access_token"]
+
+            # 2. Получаем данные пользователя (без изменений)
+            user_response = await client.get(
+                GOOGLE_USER_INFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+
+            if user_response.status_code != 200:
+                raise HTTPException(
+                    status_code=400, detail="Ошибка получения данных пользователя"
+                )
+
+            user_info = user_response.json()
+
+        # 3. ИСПРАВЛЕНИЕ: Особая обработка для Google пользователей
+        email = user_info["email"]
+        user = await db.users.get_user_by_email(email)
+
+        if not user:
+            username = user_info.get("name", email.split("@")[0])
+            username = re.sub(r"[^a-zA-Z0-9_-]", "_", username)
+
+            existing_user = await db.users.get_user_by_username(username)
+            if existing_user:
+                username = f"{username}_{user_info.get('sub', '')[:4]}"
+
+            # 🔥 Передаем ВЫМЫШЛЕННЫЙ пароль для Google пользователей
+            FAKE_PASSWORD = str(uuid.uuid4())
+            user = await db.users.create_user(
+                email=email,
+                password=FAKE_PASSWORD,  # ← Строка, а не None!
+                username=username,
+            )
+
+        else:
+            await db.users.update_user(user.id, is_verified=True)
+
+        # 4. JWT токен (без изменений)
+        jwt_token = create_access_token(
+            data={"sub": user.email, "user_id": user.id, "type": "access"},
+            expires_delta=timedelta(days=30),
+        )
+
+        # 5. Редирект с куки
+        response = RedirectResponse(
+            url="http://localhost:5173/profile", status_code=302
+        )
+        response.set_cookie(
+            key="token",
+            value=jwt_token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=30 * 24 * 60 * 60,
+            path="/",
+        )
+
+        return response
+
+    except Exception as e:
+        print(f"Ошибка Google OAuth: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Ошибка сервера")
 
 
 @router.post("/register", response_model=Dict[str, Any])

@@ -46,6 +46,15 @@ export const authApi = {
 
   async logout() {
     await apiClient.post('/auth/logout')
+  },
+  getGoogleAuthUrl: async () => {
+    const response = await apiClient.get('/auth/google');
+    return response.data;
+  },
+  
+  googleCallback: async (code) => {
+    const response = await apiClient.get('/auth/google/callback', { code });
+    return response.data;
   }
 }
 

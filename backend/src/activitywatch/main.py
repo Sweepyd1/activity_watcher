@@ -10,7 +10,7 @@ from src.activitywatch.api.device.router import router as device_router
 app = FastAPI(title="ActivityWatch Receiver", version="1.0")
 app.include_router(auth_router)
 app.include_router(device_router)
-origins = ["*"]
+origins = ["*", "http://localhost:5173"]
 
 app.add_middleware(
     CORSMiddleware,
