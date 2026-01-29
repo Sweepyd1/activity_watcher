@@ -5,10 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.activitywatch.api.auth.router import router as auth_router
 from src.activitywatch.api.device.router import router as device_router
 from src.activitywatch.api.tracker.router import router as tracker_router
+from src.activitywatch.api.statistics.router import router as statistics_router
+
 app = FastAPI(title="ActivityWatch Receiver", version="1.0")
+
 app.include_router(auth_router)
 app.include_router(device_router)
 app.include_router(tracker_router)
+app.include_router(statistics_router)
 
 origins = ["http://localhost:5173"]
 

@@ -176,10 +176,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+import axios from 'axios'
 
 const selectedPeriod = ref('week')
 const activeFilter = ref('all')
+const loading = ref({
+  overview: true,
+  chart: true,
+  devices: true,
+  apps: true
+})
+
+const statsCards = ref([])
+const dailyData = ref([])
+const deviceData = ref([])
+const topApps = ref([])
 
 const filters = ref([
   { id: 'all', label: 'Все устройства' },
@@ -189,87 +201,178 @@ const filters = ref([
   { id: 'entertainment', label: 'Развлечения' }
 ])
 
-const statsCards = ref([
-  { 
-    id: 'total', 
-    label: 'Общее время', 
-    value: '142ч 30м', 
-    trend: 12, 
-    color: 'blue',
-    icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'
+// Простой API клиент с отправкой кук
+const apiClient = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  headers: {
+    'Content-Type': 'application/json'
   },
-  { 
-    id: 'average', 
-    label: 'Среднее в день', 
-    value: '8ч 12м', 
-    trend: 5, 
-    color: 'purple',
-    icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'
-  },
-  { 
-    id: 'productive', 
-    label: 'Продуктивное время', 
-    value: '86ч 15м', 
-    trend: 8, 
-    color: 'green',
-    icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z'
-  },
-  { 
-    id: 'devices', 
-    label: 'Активных устройств', 
-    value: '3', 
-    trend: 0, 
-    color: 'orange',
-    icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z'
-  }
-])
+  withCredentials: true // Это всё что нужно! Куки отправятся автоматически
+})
 
-const dailyData = ref([
-  { label: 'Пн', hours: 8.5, value: 85 },
-  { label: 'Вт', hours: 7.2, value: 72 },
-  { label: 'Ср', hours: 9.1, value: 91 },
-  { label: 'Чт', hours: 6.8, value: 68 },
-  { label: 'Пт', hours: 7.9, value: 79 },
-  { label: 'Сб', hours: 3.2, value: 32 },
-  { label: 'Вс', hours: 2.1, value: 21 }
-])
-
-const deviceData = ref([
-  { id: 1, name: 'Windows', percentage: 58, color: '#3b82f6' },
-  { id: 2, name: 'macOS', percentage: 25, color: '#64748b' },
-  { id: 3, name: 'Android', percentage: 12, color: '#22c55e' },
-  { id: 4, name: 'iOS', percentage: 5, color: '#94a3b8' }
-])
-
-const topApps = ref([
-  { id: 1, name: 'Visual Studio Code', category: 'development', time: '42ч 15м', percentage: 32 },
-  { id: 2, name: 'Google Chrome', category: 'browser', time: '38ч 30м', percentage: 29 },
-  { id: 3, name: 'Slack', category: 'communication', time: '18ч 45м', percentage: 14 },
-  { id: 4, name: 'Figma', category: 'design', time: '12ч 20м', percentage: 9 },
-  { id: 5, name: 'Spotify', category: 'music', time: '8ч 15м', percentage: 6 }
-])
-
-const hours = ref(['8:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'])
-const days = ref(['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'])
-
-const getIntensityClass = (intensity) => {
-  const classes = ['none', 'low', 'medium', 'high', 'very-high']
-  return classes[intensity]
-}
-// Генерация данных для тепловой карты
-const heatmapData = ref([])
-for (let hour = 0; hour < 8; hour++) {
-  for (let day = 0; day < 7; day++) {
-    const intensity = Math.floor(Math.random() * 5) // 0-4
-    heatmapData.value.push({
-      id: `${hour}-${day}`,
-      intensity: getIntensityClass(intensity)
+// Загрузка всех данных
+const loadAllData = async () => {
+  try {
+    loading.value = { overview: true, chart: true, devices: true, apps: true }
+    
+    // Загружаем полную сводку
+    const summaryResponse = await apiClient.get(`/api/statistics/summary?period=${selectedPeriod.value}`)
+    
+    if (summaryResponse.data.success) {
+      const data = summaryResponse.data
+      
+      // Обновляем карточки
+      statsCards.value = [
+        { 
+          id: 'total', 
+          label: 'Общее время', 
+          value: data.overview.total_time, 
+          trend: 0, 
+          color: 'blue',
+          icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'
+        },
+        { 
+          id: 'average', 
+          label: 'Среднее в день', 
+          value: data.overview.average_daily, 
+          trend: 0, 
+          color: 'purple',
+          icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'
+        },
+        { 
+          id: 'productive', 
+          label: 'Продуктивное время', 
+          value: data.overview.productive_time, 
+          trend: Math.round(data.overview.productive_percentage), 
+          color: 'green',
+          icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z'
+        },
+        { 
+          id: 'devices', 
+          label: 'Активных устройств', 
+          value: data.overview.active_devices.toString(), 
+          trend: 0, 
+          color: 'orange',
+          icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z'
+        }
+      ]
+      
+      // Обновляем график
+      dailyData.value = data.chart_data.map(day => ({
+        label: day.label,
+        hours: day.hours,
+        value: day.value,
+        date: day.date
+      }))
+      
+      // Обновляем распределение по устройствам
+      deviceData.value = data.platform_distribution.map((platform, index) => ({
+        id: index + 1,
+        name: platform.platform.toUpperCase(),
+        percentage: platform.percentage,
+        color: platform.color,
+        hours: platform.hours
+      }))
+      
+      // Обновляем топ приложений
+      topApps.value = data.top_apps.map(app => ({
+        id: app.id,
+        name: app.name,
+        category: app.category,
+        time: app.time,
+        percentage: app.percentage,
+        original_name: app.original_name,
+        platforms: app.platforms
+      }))
+    }
+    
+  } catch (error) {
+    console.error('Error loading statistics:', error)
+    
+    // Если ошибка авторизации (401), редирект на страницу логина
+    if (error.response?.status === 401) {
+      window.location.href = '/auth'
+      return
+    }
+    
+    // Fallback на демо данные
+    loadFallbackData()
+  } finally {
+    Object.keys(loading.value).forEach(key => {
+      loading.value[key] = false
     })
   }
 }
 
+// Fallback данные (если API недоступно)
+const loadFallbackData = () => {
+  statsCards.value = [
+    { 
+      id: 'total', 
+      label: 'Общее время', 
+      value: '142ч 30м', 
+      trend: 12, 
+      color: 'blue',
+      icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'
+    },
+    { 
+      id: 'average', 
+      label: 'Среднее в день', 
+      value: '8ч 12м', 
+      trend: 5, 
+      color: 'purple',
+      icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'
+    },
+    { 
+      id: 'productive', 
+      label: 'Продуктивное время', 
+      value: '86ч 15м', 
+      trend: 8, 
+      color: 'green',
+      icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z'
+    },
+    { 
+      id: 'devices', 
+      label: 'Активных устройств', 
+      value: '3', 
+      trend: 0, 
+      color: 'orange',
+      icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z'
+    }
+  ]
+  
+  dailyData.value = [
+    { label: 'Пн', hours: 8.5, value: 85 },
+    { label: 'Вт', hours: 7.2, value: 72 },
+    { label: 'Ср', hours: 9.1, value: 91 },
+    { label: 'Чт', hours: 6.8, value: 68 },
+    { label: 'Пт', hours: 7.9, value: 79 },
+    { label: 'Сб', hours: 3.2, value: 32 },
+    { label: 'Вс', hours: 2.1, value: 21 }
+  ]
+  
+  deviceData.value = [
+    { id: 1, name: 'Windows', percentage: 58, color: '#3b82f6' },
+    { id: 2, name: 'macOS', percentage: 25, color: '#64748b' },
+    { id: 3, name: 'Android', percentage: 12, color: '#22c55e' },
+    { id: 4, name: 'iOS', percentage: 5, color: '#94a3b8' }
+  ]
+  
+  topApps.value = [
+    { id: 1, name: 'Visual Studio Code', category: 'development', time: '42ч 15м', percentage: 32 },
+    { id: 2, name: 'Google Chrome', category: 'browser', time: '38ч 30м', percentage: 29 },
+    { id: 3, name: 'Slack', category: 'communication', time: '18ч 45м', percentage: 14 },
+    { id: 4, name: 'Figma', category: 'design', time: '12ч 20м', percentage: 9 },
+    { id: 5, name: 'Spotify', category: 'music', time: '8ч 15м', percentage: 6 }
+  ]
+}
+
 onMounted(() => {
-  console.log('Statistics page loaded')
+  loadAllData()
+})
+
+watch(selectedPeriod, () => {
+  loadAllData()
 })
 
 const applyFilter = (filterId) => {
@@ -288,17 +391,39 @@ const getCategoryName = (category) => {
     development: 'Разработка',
     browser: 'Браузер',
     communication: 'Общение',
+    social: 'Соцсети',
+    entertainment: 'Развлечения',
+    productivity: 'Продуктивность',
     design: 'Дизайн',
-    music: 'Музыка'
+    music: 'Музыка',
+    other: 'Другое'
   }
   return names[category] || category
 }
 
 const showDayTooltip = (day) => {
-  console.log(`${day.label}: ${day.hours} часов`)
+  console.log(`${day.label}: ${day.hours} часов, дата: ${day.date}`)
 }
 
-
+const exportData = async () => {
+  try {
+    const response = await apiClient.get(`/api/statistics/detailed-daily?period=${selectedPeriod.value}`, {
+      responseType: 'blob'
+    })
+    
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `statistics-${selectedPeriod.value}-${new Date().toISOString().split('T')[0]}.json`)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    
+  } catch (error) {
+    console.error('Error exporting data:', error)
+    alert('Ошибка при экспорте данных')
+  }
+}
 </script>
 
 <style scoped>

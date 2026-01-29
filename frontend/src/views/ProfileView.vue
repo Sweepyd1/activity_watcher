@@ -168,34 +168,7 @@
           </div>
         </div>
 
-        <!-- Статистика -->
-        <div class="profile-card stats-card">
-          <div class="card-header">
-            <h3>Статистика за неделю</h3>
-            <button class="refresh-btn" @click="fetchWeeklyStats" :disabled="statsLoading">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-              </svg>
-            </button>
-          </div>
-          <div v-if="weeklyStats.length > 0" class="weekly-stats">
-            <div v-for="day in weeklyStats" :key="day.day" class="day-stat">
-              <span class="day-name">{{ day.day }}</span>
-              <div class="day-bar">
-                <div 
-                  class="bar-fill" 
-                  :style="{ height: day.percentage + '%' }"
-                  :class="getBarColor(day.percentage)"
-                ></div>
-              </div>
-              <span class="day-hours">{{ day.hours }}ч</span>
-            </div>
-          </div>
-          <div v-else class="empty-stats">
-            <p>Нет данных о статистике</p>
-            <button @click="fetchWeeklyStats" class="load-stats-btn">Загрузить статистику</button>
-          </div>
-        </div>
+
       </div>
     </div>
 
