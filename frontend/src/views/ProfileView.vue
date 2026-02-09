@@ -340,7 +340,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { authApi } from '@/api/auth'
-import { devicesApi } from '@/api/devices' // Предполагаем, что этот API существует
+import { devicesApi } from '@/api/devices'
 import Swal from 'sweetalert2'
 
 const router = useRouter()
@@ -360,7 +360,7 @@ const showAddDeviceModal = ref(false)
 const showTokenModal = ref(false)
 const selectedDevice = ref(null)
 
-// Новое устройство
+
 const newDevice = ref({
   device_name: '',
   platform: 'windows',

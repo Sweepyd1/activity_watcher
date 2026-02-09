@@ -1,4 +1,3 @@
-# 📁 src/activitywatch/api/router.py (обновленная версия)
 import json
 from datetime import datetime, date, timezone
 from typing import Optional
@@ -13,33 +12,34 @@ router = APIRouter(prefix="/tracker", tags=["отслеживание актив
 async def receive_incremental(request: Request):
     try:
         data = await request.json()
-        print(f"📥 Получены инкрементальные данные: {len(data.get('events', []))} событий")
+        print(data)
+        print(f"Получены инкрементальные данные: {len(data.get('events', []))} событий")
         
-        # ✅ ПРАВИЛЬНО извлекаем device_id как СТРОКУ
-        device_id = data.get("device_id")  # Строка из клиента!
+    
+        device_id = data.get("device_id")  
         print(device_id)
         if not device_id:
             raise HTTPException(status_code=400, detail="device_id required")
         
         device_info = data.get("device_info", {})
         
-        print(f"🔍 Поиск устройства: {device_id[:8]}...")
+        print(f"Поиск устройства: {device_id[:8]}...")
         
         # Находим устройство в БД
         device = await db.devices.find_device_by_identifier(device_id)
         if not device:
-            print(f"⚠️ Устройство не найдено: {device_id}")
+            print(f"Устройство не найдено: {device_id}")
             return {"status": "error", "message": f"Device {device_id} not registered"}
         
-        print(f"✅ Найдено устройство: {device.device_name} (ID: {device.id})")
+        print(f"Найдено устройство: {device.device_name} (ID: {device.id})")
 
-        # Создаем сессию синхронизации
+
         sync_session = await db.sync.create_sync_session(
             device_id=device.id,
             status=SyncStatus.IN_PROGRESS
         )
         
-        # Сохраняем события
+
         events_data = data.get("events", [])
         events = await db.activity.create_events_batch(
             device_id=device.id,
@@ -47,7 +47,6 @@ async def receive_incremental(request: Request):
             events_data=events_data
         )
         
-        # ✅ Обновляем last_seen
         device.last_seen = datetime.now(timezone.utc)
         # await db.devices.update_last_seen(device.id)
         
@@ -112,16 +111,6 @@ async def receive_daily_summary(
         )
         
         print(f"💾 Сохранено событий: {len(events)}")
-        
-        # Завершаем сессию
-        # await db.sync.complete_sync_session(
-
-        #     sync_session_id=sync_session.id,
-        #     events_count=len(events),
-        #     status=SyncStatus.SUCCESS
-        # )
-        
-        # Обновляем время последней активности устройства
         device.last_seen = datetime.now(timezone.utc)
       
         

@@ -129,7 +129,7 @@ class AdminAuthConfig(BaseModel):
 
 class ActivityWatchConfig(BaseModel):
     api_url: str = "http://localhost:5600/api/0"
-    sync_interval: int = 300  # 5 минут в секундах
+    sync_interval: int = 60  # 5 минут в секундах
     default_device_name: str = "Unnamed Device"
     max_events_per_request: int = 1000
 

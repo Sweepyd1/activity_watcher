@@ -64,21 +64,17 @@ async def create_device_token(
 
 @router.post("/register", response_model=DeviceResponse, status_code=201)
 async def register_device(request: RegisterDeviceRequest):
-    # ✅ Валидируем токен
     api_token = await db.tokens.validate_token(request.token)
     if not api_token:
         raise HTTPException(status_code=401, detail="Неверный токен")
 
-    # Ищем устройство по токену
     device = await db.devices.get_device_by_id(api_token.device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Устройство не найдено")
 
-    # ✅ Проверяем, не зарегистрировано ли уже
     if device.device_id and device.device_id != request.device_id:
         raise HTTPException(status_code=400, detail="Устройство уже зарегистрировано")
 
-    # ✅ СОХРАНЯЕМ ВСЕ ДАННЫЕ
     updated_device = await db.devices.update_device_registration(
         device_id=device.id,
         real_device_id=request.device_id,
@@ -98,8 +94,7 @@ async def register_device(request: RegisterDeviceRequest):
 async def get_device_tokens(
     device_id: int, current_user: dict = Depends(get_current_user)
 ):
-    """Получить все токены устройства"""
-    # Проверяем владельца устройства
+
     device = await db.devices.get_device_by_id(
         device_id=device_id, user_id=current_user["id"]
     )
@@ -110,8 +105,6 @@ async def get_device_tokens(
         )
 
     tokens = await db.api_tokens.get_device_tokens(device_id, current_user["id"])
-    # Возвращаем токены (включая сам токен только для нового создания)
-    # Для существующих токенов не показываем сам токен, только метаданные
     return tokens
 
 
@@ -119,8 +112,7 @@ async def get_device_tokens(
 async def revoke_token(
     device_id: int, token_id: int, current_user: dict = Depends(get_current_user)
 ):
-    """Отозвать токен устройства"""
-    # Проверяем владельца устройства
+
     device = await db.devices.get_device_by_id(
         device_id=device_id, user_id=current_user["id"]
     )
@@ -142,7 +134,7 @@ async def revoke_token(
 
 @router.delete("/{device_id}")
 async def delete_device(device_id: int, current_user: dict = Depends(get_current_user)):
-    """Удалить устройство"""
+
     success = await db.devices.delete_device(device_id, current_user["id"])
 
     if not success:

@@ -89,7 +89,8 @@ async def google_callback(code: str = Query(...), state: str = Query(None)):
             )
 
         else:
-            await db.users.update_user(user.id, is_verified=True)
+            # await db.users.update_user(user.id, is_verified=True)
+            pass
 
         jwt_token = create_access_token(
             data={"sub": user.email, "user_id": user.id, "type": "access"},
@@ -247,10 +248,9 @@ async def get_current_user(request: Request):
     try:
         # Получаем токен из куки
         token = request.cookies.get("token")
-        print(f"Получен токен из куки: {token[:50] if token else 'None'}...")
+      
 
         if not token:
-            print("Токен не найден в куках")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Не авторизован"
             )
@@ -258,20 +258,18 @@ async def get_current_user(request: Request):
         # Декодируем токен
         payload = decode_access_token(token)
         if not payload:
-            print("Не удалось декодировать токен или токен истек")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Неверный или истекший токен",
             )
 
-        print(f"Декодированный payload: {payload}")
+    
 
         user_id = payload.get("user_id")
         token_type = payload.get("type")
 
         if not user_id:
-            print("user_id не найден в токене")
-            print(f"Токен содержит: {payload}")
+
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Неверный токен: отсутствует user_id",
@@ -283,17 +281,17 @@ async def get_current_user(request: Request):
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный тип токена"
             )
 
-        print(f"Ищем пользователя с ID: {user_id}")
+  
 
         user = await db.users.get_user_by_id(user_id)
 
         if not user:
-            print("Пользователь не найден в БД")
+
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден"
             )
 
-        print(f"Найден пользователь: {user.email}")
+    
 
         return {
             "success": True,
