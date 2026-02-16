@@ -1,0 +1,3 @@
+2026-02-16 17:48:17,293 - manager - INFO - Проверка установки ActivityWatch на Linux
+2026-02-16 17:48:17,301 - manager - INFO - ActivityWatch найден: /home/sweepy/.local/bin/aw-server
+2026-02-16 17:48:17,301 - manager - INFO - Проверка запущен ли ActivityWatch...

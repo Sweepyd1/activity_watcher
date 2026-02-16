@@ -57,6 +57,7 @@ class ActivityWatchManager:
         self.install_path = self.install_paths.get(
             self.system, Path.home() / "activitywatch"
         )
+        self.python_path = sys.executable
 
     def check_activitywatch_installed(self) -> Tuple[bool, Optional[Path]]:
         """

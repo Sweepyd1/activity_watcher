@@ -10,6 +10,7 @@ from pathlib import Path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Настройка логирования
 log_dir = Path.home() / ".activitywatch"
 log_dir.mkdir(exist_ok=True)
@@ -85,8 +86,8 @@ def main():
         logger.info(f"Device ID: {client.device_info.device_id}")
         
         # Непрерывная синхронизация (более надежная версия)
-        sync_interval = 1  # минут
-        logger.info(f"Запуск непрерывной синхронизации (интервал {sync_interval} минут)...")
+        sync_interval = 60  # минут
+        logger.info(f"Запуск непрерывной синхронизации (интервал {sync_interval} секунд)...")
         
         while True:
             try:
