@@ -275,7 +275,7 @@ class ActivityWatchSyncService(BaseSyncClient):
             self.state.update_sync_time(current_time)
             self.state.add_event_hashes(new_hashes)
             self.daily_cache.extend(new_events)
-            self._check_and_daily_report()
+            self._check_and_send_daily_report()
         return success
 
     def _check_and_send_daily_report(self):
