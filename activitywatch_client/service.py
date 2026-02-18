@@ -48,7 +48,7 @@ class ActivityWatchClient:
     def __init__(
         self,
         api_url: str = "http://localhost:5600/api/0",
-        server_url: str = "http://localhost:8000",
+        server_url: str = "http://192.168.2.126:8000",
     ):
         """
         Инициализация клиента.
