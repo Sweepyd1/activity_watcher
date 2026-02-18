@@ -218,6 +218,25 @@ class ActivityWatchSyncService(BaseSyncClient):
         logger.info("Дозаполнение истории завершено")
         return True
 
+    def _should_catch_up(self) -> bool:
+        """Проверяет, нужно ли дозаполнять историю."""
+        last_sync = self.state.state.last_sync_time
+
+        # Если никогда не синхронизировались – точно нужно
+        if last_sync is None:
+            return True
+
+        # Определяем начало сегодняшнего дня (в UTC)
+        now = datetime.now(timezone.utc)
+        today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+
+        # Если последняя синхронизация была до сегодняшнего дня – нужно догнать вчера и ранее
+        if last_sync < today_start:
+            return True
+
+        # Иначе всё актуально
+        return False
+
     def sync(self) -> bool:
         """
         Выполняет одну итерацию синхронизации.
