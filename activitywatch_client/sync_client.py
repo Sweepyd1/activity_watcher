@@ -238,72 +238,44 @@ class ActivityWatchSyncService(BaseSyncClient):
         return False
 
     def sync(self) -> bool:
-        """
-        Выполняет одну итерацию синхронизации.
-
-        Returns:
-            bool: True если синхронизация успешна, иначе False
-        """
-        # Проверяем подключения
         if not self.client.check_activitywatch_connection():
-            logger.warning("ActivityWatch недоступен")
             return False
-
         if not self.client.check_server_connection():
-            logger.warning("Сервер недоступен")
             return False
 
-        # Получаем bucket с данными окон
         bucket_id = self.client.find_window_bucket()
         if not bucket_id:
-            logger.warning("Bucket окон не найден")
             return False
 
+        # Догон истории
         if self._should_catch_up():
             if not self._catch_up_history(bucket_id):
                 return False
 
-        # Определяем время начала запроса
+        # Инкрементальная синхронизация
         last_sync = self.state.state.last_sync_time
         current_time = datetime.now(timezone.utc)
-
         if not last_sync:
-            # Первая синхронизация - берем последний час
             last_sync = current_time - timedelta(hours=1)
-            logger.info(
-                f"Первая синхронизация, начинаем с {last_sync.strftime('%H:%M')}"
-            )
 
-        # Получаем события
         events, actual_start = self.client.get_events_safe(bucket_id, last_sync)
-
         if not events:
             logger.info("Нет новых событий")
             return True
 
-        # Фильтруем только новые события
         new_events, new_hashes = self.client.filter_new_events(
             events, self.state.state.last_sync_time, self.state.state.last_event_hashes
         )
-
         if not new_events:
-            logger.info("Все события уже были обработаны")
+            logger.info("Все события уже обработаны")
             return True
 
-        # Отправляем инкрементальное обновление
         success = self.client.send_incremental_update(new_events)
-
         if success:
-            # Обновляем состояние
             self.state.update_sync_time(current_time)
             self.state.add_event_hashes(new_hashes)
-
-            # Добавляем события в дневной кэш
             self.daily_cache.extend(new_events)
-
-            # Проверяем, нужно ли отправить дневной отчет
-            self._check_and_send_daily_report()
-
+            self._check_and_daily_report()
         return success
 
     def _check_and_send_daily_report(self):

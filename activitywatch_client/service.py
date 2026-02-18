@@ -573,7 +573,9 @@ class ActivityWatchClient:
         """
         try:
             response = self.session.post(
-                f"{self.server_url}/receive_daily_summary", json=summary, timeout=15
+                f"{self.server_url}/tracker/receive_daily_summary",
+                json=summary,
+                timeout=15,
             )
 
             if response.status_code == 200:
