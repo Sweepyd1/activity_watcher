@@ -1,4 +1,3 @@
-
 import json
 import time
 
@@ -12,11 +11,11 @@ from pathlib import Path
 import logging
 
 
-
 from config import BaseSyncClient, SyncState
 from service import ActivityWatchClient
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +26,7 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
 
 class SyncStateManager:
     """
@@ -165,6 +165,59 @@ class ActivityWatchSyncService(BaseSyncClient):
         self.state = state_manager
         self.daily_cache = []
 
+    def _catch_up_history(self, bucket_id: str) -> bool:
+        """Отправляет все пропущенные дни (от earliest до yesterday)."""
+        logger.info("Начинаем дозаполнение истории...")
+
+        # Получаем самое раннее событие
+        earliest = self.client.get_earliest_event_time(bucket_id)
+        if not earliest:
+            logger.info("Нет событий для истории")
+            return True
+
+        # Определяем дату начала отправки
+        last = self.state.state.last_sync_time
+        if last and last > earliest:
+            start_date = last.date() + timedelta(
+                days=1
+            )  # следующий день после last_sync
+        else:
+            start_date = earliest.date()
+
+        # Вчерашний день (сегодня ещё не закончился)
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+
+        if start_date > yesterday:
+            logger.info("История уже актуальна")
+            return True
+
+        logger.info(f"Будем отправлять дни от {start_date} до {yesterday}")
+
+        current_date = start_date
+        while current_date <= yesterday:
+            day_start = datetime.combine(current_date, time.min, tzinfo=timezone.utc)
+            day_end = datetime.combine(current_date, time.max, tzinfo=timezone.utc)
+
+            logger.info(f"Обрабатываем {current_date}")
+            events = self.client.get_events(
+                bucket_id, start_time=day_start, end_time=day_end
+            )
+
+            if events:
+                # Отправляем все события за день
+                success = self.client.send_incremental_update(events)
+                if not success:
+                    logger.error(f"Ошибка при отправке дня {current_date}, прерываем")
+                    return False
+                logger.info(f"Отправлено {len(events)} событий за {current_date}")
+
+            # Обновляем состояние: last_sync_time = конец дня
+            self.state.update_sync_time(day_end)
+            current_date += timedelta(days=1)
+
+        logger.info("Дозаполнение истории завершено")
+        return True
+
     def sync(self) -> bool:
         """
         Выполняет одну итерацию синхронизации.
@@ -186,6 +239,10 @@ class ActivityWatchSyncService(BaseSyncClient):
         if not bucket_id:
             logger.warning("Bucket окон не найден")
             return False
+
+        if self._should_catch_up():
+            if not self._catch_up_history(bucket_id):
+                return False
 
         # Определяем время начала запроса
         last_sync = self.state.state.last_sync_time
@@ -291,4 +348,3 @@ class ActivityWatchSyncService(BaseSyncClient):
         except Exception as e:
             logger.error(f"Критическая ошибка в непрерывной синхронизации: {e}")
             raise
-

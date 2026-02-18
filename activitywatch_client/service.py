@@ -1,14 +1,14 @@
-
 import requests
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import platform
 import socket
 import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import  asdict
+from dataclasses import asdict
 from pathlib import Path
 
 import logging
@@ -16,6 +16,7 @@ import logging
 
 from config import DeviceInfo
 from security import SecurityToken
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -25,6 +26,8 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+
 class ActivityWatchClient:
     """
     Клиент для работы с ActivityWatch API.
@@ -70,6 +73,27 @@ class ActivityWatchClient:
         logger.info(
             f"Инициализирован клиент для устройства: {self.device_info.device_name}"
         )
+
+    def get_earliest_event_time(self, bucket_id: str) -> Optional[datetime]:
+        """Возвращает время самого раннего события в bucket."""
+        # Запрашиваем одно событие после очень ранней даты
+        very_early = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        events = self.get_events(bucket_id, start_time=very_early, limit=1)
+        if events:
+            ts = events[0].get("timestamp")
+            if ts:
+                # Преобразуем строку в datetime (как в filter_new_events)
+                return self._parse_timestamp(ts)  # нужно реализовать
+        return None
+
+    def _parse_timestamp(self, ts_str: str) -> datetime:
+        if "Z" in ts_str:
+            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(ts_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
 
     def _collect_device_info(self) -> DeviceInfo:
         """
@@ -501,7 +525,7 @@ class ActivityWatchClient:
 
         # ✅ ПРОВЕРКА + ОТЛАДКА
         print(f"🔍 Полный конфиг: {config}")
-        device_id = config.get('device_id')
+        device_id = config.get("device_id")
         print(f"🔍 device_id: '{device_id}' (type: {type(device_id)})")
 
         if not device_id:
@@ -515,7 +539,7 @@ class ActivityWatchClient:
             "events": events,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "count": len(events),
-            "device_id": device_id  # ✅ Теперь точно строка!
+            "device_id": device_id,  # ✅ Теперь точно строка!
         }
 
         try:
