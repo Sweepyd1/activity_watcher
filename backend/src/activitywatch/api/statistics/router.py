@@ -10,8 +10,17 @@ from src.activitywatch.database.db_manager import DatabaseManager
 from src.activitywatch.loader import db
 from aiocache import cached
 from aiocache.serializers import JsonSerializer
+import time
+import asyncio
+from datetime import datetime, timezone
+from typing import Dict, Any
+from fastapi import Query, HTTPException
+import logging
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO) 
+
 
 router = APIRouter(prefix="/api/statistics", tags=["statistics"])
 
@@ -202,33 +211,52 @@ async def get_detailed_daily_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
 @router.get("/summary")
-@cached(
-    ttl=300,
-    serializer=JsonSerializer(),
-    key_builder=lambda f,
-    *a,
-    **kw: f"summary_{kw['current_user']['id']}_{kw['period']}",
-)
+# @cached(
+#     ttl=300,
+#     serializer=JsonSerializer(),
+#     key_builder=lambda f, *a, **kw: f"summary_{kw['current_user']['id']}_{kw['period']}",
+# )
 async def get_complete_summary(
     period: str = Query("week", description="Период: week, month, quarter, year"),
     current_user: Dict = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    try:
-        user_id = current_user["id"]
-        days_map = {"week": 7, "month": 30, "quarter": 90, "year": 365}
-        days = days_map.get(period.lower(), 7)
+    
+    overall_start = time.time()
+    user_id = current_user["id"]
+    logger.info(f"Начало формирования сводки для пользователя {user_id}, период={period}")
 
+    days_map = {"week": 7, "month": 30, "quarter": 90, "year": 365}
+    days = days_map.get(period.lower(), 7)
+
+    try:
+        # Вспомогательная функция для замера времени выполнения корутины
+        async def timed_task(coro, task_name: str):
+            task_start = time.time()
+            logger.debug(f"Задача '{task_name}' стартовала")
+            try:
+                result = await coro
+                elapsed = time.time() - task_start
+                logger.info(f"Задача '{task_name}' завершена за {elapsed:.3f} с")
+                return result
+            except Exception as e:
+                elapsed = time.time() - task_start
+                logger.error(f"Задача '{task_name}' упала через {elapsed:.3f} с: {e}")
+                raise
+
+        # Собираем задачи без изменения существующих вызовов (сессии создаются внутри методов)
         tasks = [
-            db.statistics.get_overview_stats(user_id, days),
-            db.statistics.get_daily_activity_chart(user_id, days),
-            db.statistics.get_platform_distribution(user_id, days),
-            db.statistics.get_top_apps(user_id, 5, days),
-            db.statistics.get_trends(user_id, period),
-            db.statistics.get_category_distribution(user_id, days),
-            db.statistics.get_hourly_activity(user_id, days),
+            timed_task(db.statistics.get_overview_stats(user_id, days), "overview_stats"),
+            timed_task(db.statistics.get_daily_activity_chart(user_id, days), "daily_activity_chart"),
+            timed_task(db.statistics.get_platform_distribution(user_id, days), "platform_distribution"),
+            timed_task(db.statistics.get_top_apps(user_id, 5, days), "top_apps"),
+            timed_task(db.statistics.get_trends(user_id, period), "trends"),
+            timed_task(db.statistics.get_category_distribution(user_id, days), "category_distribution"),
+            timed_task(db.statistics.get_hourly_activity(user_id, days), "hourly_activity"),
         ]
 
+        # Параллельный запуск
         results = await asyncio.gather(*tasks)
         (
             overview,
@@ -237,9 +265,12 @@ async def get_complete_summary(
             top_apps,
             trends,
             categories,
-            heatmap,  # list: 7x24 матрица
+            heatmap,
         ) = results
 
+        total_elapsed = time.time() - overall_start
+        logger.info(f"Полная сводка сформирована за {total_elapsed:.3f} с")
+        print(results)
         return {
             "success": True,
             "period": period,
@@ -255,7 +286,8 @@ async def get_complete_summary(
         }
 
     except Exception as e:
-        logger.error(f"Error getting complete summary: {e}")
+        total_elapsed = time.time() - overall_start
+        logger.error(f"Ошибка при формировании сводки (прошло {total_elapsed:.3f} с): {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

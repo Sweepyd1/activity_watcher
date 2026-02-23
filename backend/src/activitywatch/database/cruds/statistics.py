@@ -21,7 +21,7 @@ class StatisticsCRUD:
         self.db = db
         self.common = common_crud
 
-    # ---------- Публичные методы с поддержкой session ----------
+    
     async def get_overview_stats(
         self,
         user_id: int,

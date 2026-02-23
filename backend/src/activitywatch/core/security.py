@@ -99,8 +99,6 @@ async def get_current_user(request: Request):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден"
             )
 
-        print(f"Найден пользователь: {user.email}")
-
         return {
             "id": user.id,
             "email": user.email,

@@ -6,6 +6,7 @@ from src.activitywatch.api.auth.router import router as auth_router
 from src.activitywatch.api.device.router import router as device_router
 from src.activitywatch.api.tracker.router import router as tracker_router
 from src.activitywatch.api.statistics.router import router as statistics_router
+from fastapi.middleware.gzip import GZipMiddleware
 
 app = FastAPI(title="ActivityWatch Receiver", version="1.0")
 
@@ -23,6 +24,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 received_data = []
 
 
