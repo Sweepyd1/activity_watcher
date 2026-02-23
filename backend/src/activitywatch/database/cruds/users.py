@@ -6,7 +6,7 @@ import time
 from typing import TYPE_CHECKING, Optional
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy.orm import noload
 from src.activitywatch.database.models import User
 from src.activitywatch.core.security import verify_password, get_password_hash
 from src.activitywatch.database.db_manager import DatabaseManager
@@ -175,25 +175,13 @@ class UsersCRUD:
             await session.commit()
             return True
 
-    async def get_user_by_id(self, user_id: int, session: Optional[AsyncSession] = None) -> Optional[User]:
-        total_start = time.time()
+    async def get_user_by_id(self, user_id: int) -> Optional[User]:
         async with self.db.get_session() as session:
-            # Сырой SQL запрос
-            query_start = time.time()
-            stmt = text("SELECT * FROM users WHERE id = :id")
-            result = await session.execute(stmt, {"id": user_id})
-            query_time = time.time() - query_start
-            print(f"⏱️ Время выполнения сырого запроса: {query_time:.3f} с")
+            stmt = select(User).where(User.id == user_id).options(
+                noload(User.devices),
+                noload(User.tokens)
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+                    
             
-            # Получаем первую запись (если есть)
-            row = result.first()
-            total_time = time.time() - total_start
-            print(f"⏱️ Общее время: {total_time:.3f} с")
-            
-            if row:
-                # Преобразуем строку в объект User (если нужно)
-                # Можно вручную создать User из row._mapping
-                return User(**row._mapping)
-            return None
-                
-        

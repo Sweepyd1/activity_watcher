@@ -161,10 +161,10 @@ class User(Base):
 
     # Relationships
     devices: Mapped[List["Device"]] = relationship(
-        "Device", back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+        "Device", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
     tokens: Mapped[List["ApiToken"]] = relationship(
-        "ApiToken", back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+        "ApiToken", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
 
     @validates("email")
@@ -207,24 +207,24 @@ class Device(Base):
     meta_data: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="devices", lazy="joined")
+    user: Mapped["User"] = relationship("User", back_populates="devices", lazy="select")
     tokens: Mapped[List["ApiToken"]] = relationship(
         "ApiToken",
         back_populates="device",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="select",
     )
     sync_sessions: Mapped[List["SyncSession"]] = relationship(
         "SyncSession",
         back_populates="device",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="select",
     )
     activity_events: Mapped[List["ActivityEvent"]] = relationship(
         "ActivityEvent",
         back_populates="device",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="select",
     )
 
     def update_last_seen(self):
@@ -280,12 +280,12 @@ class ApiToken(Base):
     )
  
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="tokens", lazy="joined")
+    user: Mapped["User"] = relationship("User", back_populates="tokens", lazy="select")
     device: Mapped["Device"] = relationship(
-        "Device", back_populates="tokens", lazy="joined"
+        "Device", back_populates="tokens", lazy="select"
     )
     sync_sessions: Mapped[List["SyncSession"]] = relationship(
-        "SyncSession", back_populates="token", lazy="selectin"
+        "SyncSession", back_populates="token", lazy="select"
     )
 
     @validates("permissions")
@@ -362,16 +362,16 @@ class SyncSession(Base):
 
     # Relationships
     device: Mapped["Device"] = relationship(
-        "Device", back_populates="sync_sessions", lazy="joined"
+        "Device", back_populates="sync_sessions", lazy="select"
     )
     token: Mapped[Optional["ApiToken"]] = relationship(
-        "ApiToken", back_populates="sync_sessions", lazy="joined"
+        "ApiToken", back_populates="sync_sessions", lazy="select"
     )
     activity_events: Mapped[List["ActivityEvent"]] = relationship(
         "ActivityEvent",
         back_populates="sync_session",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="select",
     )
 
     @hybrid_property
@@ -451,10 +451,10 @@ class ActivityEvent(Base):
 
     # Relationships
     device: Mapped["Device"] = relationship(
-        "Device", back_populates="activity_events", lazy="joined"
+        "Device", back_populates="activity_events", lazy="select"
     )
     sync_session: Mapped[Optional["SyncSession"]] = relationship(
-        "SyncSession", back_populates="activity_events", lazy="joined"
+        "SyncSession", back_populates="activity_events", lazy="select"
     )
 
     @hybrid_property

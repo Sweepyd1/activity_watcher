@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy import or_
+from sqlalchemy.orm import noload
 from src.activitywatch.database.models import Device, DevicePlatform
 
 from src.activitywatch.database.db_manager import DatabaseManager
@@ -45,9 +46,13 @@ class DevicesCRUD:
             return device
 
     async def get_user_devices(self, user_id: int) -> List[Device]:
-        """Получить все устройства пользователя"""
         async with self.db.get_session() as session:
-            stmt = select(Device).where(Device.user_id == user_id)
+            stmt = select(Device).where(Device.user_id == user_id).options(
+                noload(Device.user),
+                noload(Device.tokens),
+                noload(Device.sync_sessions),
+                noload(Device.activity_events)
+            )
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
