@@ -352,3 +352,66 @@ async def get_daily_breakdown(
     except Exception as e:
         logger.error(f"Error getting daily breakdown: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/all-apps")
+async def get_all_apps(
+    period: str = Query("week", description="Период: week, month, quarter, year"),
+    filter: Optional[str] = Query(None, description="Фильтр (pc, mobile, productive, entertainment)"),
+    current_user: Dict = Depends(get_current_user),
+) -> Dict[str, Any]:
+    try:
+        user_id = current_user["id"]
+        days_map = {"week": 7, "month": 30, "quarter": 90, "year": 365}
+        days = days_map.get(period.lower(), 7)
+
+        limit = 1000  # достаточно для всех приложений
+        apps = await db.statistics.get_top_apps(user_id, limit, days)
+
+        formatted_apps = []
+        for app in apps:
+            minutes = app["total_seconds"] // 60  # целое количество минут
+            # Определяем минуты: ищем total_seconds или duration_minutes
+            if 'total_seconds' in app:
+                minutes = app['total_seconds'] // 60
+            elif 'duration_minutes' in app:
+                minutes = app['duration_minutes']
+            elif 'time_hours' in app:
+                # Если есть только time_hours (часы с дробной частью)
+                minutes = int(app['time_hours'] * 60)
+            else:
+                minutes = 0
+
+            formatted_apps.append({
+                "id": app["id"],
+                "name": app["name"],
+                "original_name": app["original_name"],
+                "category": app["category"],
+                "time": app["time_formatted"],
+                "minutes": minutes,  # добавляем минуты
+                "time_hours": app["time_hours"],
+                "percentage": app["percentage"],
+                "platforms": app.get("platforms", []),
+            })
+
+        # Применить фильтр, если передан
+        if filter:
+            # пример фильтрации по категориям
+            if filter == "productive":
+                prod_cats = {"development", "productivity", "design"}
+                formatted_apps = [a for a in formatted_apps if a["category"] in prod_cats]
+            elif filter == "entertainment":
+                ent_cats = {"entertainment", "music", "social"}
+                formatted_apps = [a for a in formatted_apps if a["category"] in ent_cats]
+            # и т.д.
+
+        return {
+            "success": True,
+            "apps": formatted_apps,
+            "total": len(formatted_apps),
+            "period": period,
+            "filter": filter,
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting all apps: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

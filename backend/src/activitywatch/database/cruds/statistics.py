@@ -331,6 +331,7 @@ class StatisticsCRUD:
                     "time_formatted": self._format_hours(hours),
                     "percentage": round(percentage, 1),
                     "event_count": row.event_count,
+                       "total_seconds": row.total_seconds,
                 }
             )
         return top_apps

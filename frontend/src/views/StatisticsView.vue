@@ -95,30 +95,19 @@
 
       <!-- Графики: активность по дням + устройства -->
       <div class="charts-grid">
-        <div class="chart-container">
-          <div class="chart-header">
-            <h3>Активность по дням</h3>
-            <span class="chart-unit">часы</span>
-          </div>
-          <div class="daily-chart">
-            <div 
-              v-for="(day, index) in dailyData" 
-              :key="index"
-              class="chart-day"
-              @click="showDayDetail(day)"
-            >
-              <div class="day-label">{{ day.label }}</div>
-              <div class="day-bar-container">
-                <div 
-                  class="day-bar" 
-                  :style="{ height: day.value + '%' }"
-                  :class="getBarHeightClass(day.value)"
-                ></div>
-              </div>
-              <div class="day-value">{{ day.hours }}ч</div>
-            </div>
-          </div>
-        </div>
+       <div class="chart-container">
+  <div class="chart-header">
+    <h3>Активность по дням</h3>
+    <span class="chart-unit">часы</span>
+  </div>
+  <div class="chart-wrapper">
+    <Bar 
+      :data="dailyChartData" 
+      :options="dailyChartOptions" 
+      style="height: 250px; min-width: 600px;" 
+    />
+  </div>
+</div>
 
         <div class="chart-container">
           <div class="chart-header">
@@ -145,8 +134,8 @@
         </div>
       </div>
 
-      <!-- Тепловая карта активности (новая секция) -->
-      <div class="heatmap-container" v-if="heatmapData.length">
+      <!-- Тепловая карта активности -->
+      <!-- <div class="heatmap-container">
         <div class="heatmap-header">
           <h3>Тепловая карта активности</h3>
           <div class="heatmap-legend">
@@ -156,33 +145,16 @@
             <span class="legend-item"><span class="legend-color very-high"></span> Очень много</span>
           </div>
         </div>
-        <div class="heatmap">
-          <div class="heatmap-grid">
-            <!-- Заголовки дней (по вертикали слева) -->
-            <div class="time-labels">
-              <div v-for="hour in 24" :key="hour" class="time-label">{{ hour-1 }}:00</div>
-            </div>
-            <!-- Сама сетка -->
-            <div class="heatmap-cells-wrapper">
-              <div class="day-labels">
-                <div v-for="day in dayNames" :key="day">{{ day }}</div>
-              </div>
-              <div class="heatmap-rows">
-                <div v-for="(row, dayIdx) in heatmapData" :key="dayIdx" class="heatmap-row">
-                  <div
-                    v-for="(value, hourIdx) in row"
-                    :key="hourIdx"
-                    class="heatmap-cell"
-                    :class="getHeatClass(value)"
-                    :title="`${dayNames[dayIdx]} ${hourIdx}:00 – ${Math.round(value)} мин`"
-                    @click="showHourDetail(dayIdx, hourIdx, value)"
-                  ></div>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div class="heatmap-wrapper" style="height: 300px; overflow-x: auto;">
+          <MatrixChart
+            v-if="heatmapMatrix.length"
+            :data="heatmapChartData"
+            :options="heatmapOptions"
+            style="width: 1000px; height: 280px;" 
+          />
+        
         </div>
-      </div>
+      </div> -->
 
       <!-- Распределение по категориям (новая секция) -->
       <div class="categories-container" v-if="categoriesData.length">
@@ -232,38 +204,71 @@
 
       <!-- Модальное окно детализации дня -->
       <Teleport to="body">
-        <div v-if="showDayModal" class="modal-overlay" @click.self="closeModal">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h3>Детали за {{ selectedDayLabel }}</h3>
-              <button class="close-btn" @click="closeModal">×</button>
-            </div>
-            <div class="modal-body">
-              <div v-if="loading.dayBreakdown" class="loading-spinner">Загрузка...</div>
-              <div v-else-if="dayActivities.length === 0" class="no-data">Нет данных за этот день</div>
-              <div v-else class="activities-list">
-                <div v-for="act in dayActivities" :key="act.id" class="activity-item">
-                  <div class="activity-icon" :class="act.category">
-                    <!-- иконка категории -->
-                  </div>
-                  <div class="activity-info">
-                    <div class="activity-name">{{ act.app_name }}</div>
-                    <div class="activity-time">{{ formatTime(act.duration) }}</div>
-                  </div>
-                </div>
+  <div v-if="showAllAppsModal" class="modal-overlay" @click.self="showAllAppsModal = false">
+    <div class="modal-content all-apps-modal">
+      <div class="modal-header">
+        <h3>Все приложения</h3>
+        <button class="close-btn" @click="showAllAppsModal = false">×</button>
+      </div>
+      <div class="modal-body">
+        <!-- Поиск и сортировка (опционально) -->
+        <div class="apps-toolbar">
+          <input 
+            v-model="allAppsSearch" 
+            type="text" 
+            placeholder="Поиск приложения..."
+            class="search-input"
+          />
+          <select v-model="allAppsSort" class="sort-select">
+            <option value="time_desc">По времени (сначала много)</option>
+            <option value="time_asc">По времени (сначала мало)</option>
+            <option value="name_asc">По имени (А-Я)</option>
+          </select>
+        </div>
+
+        <!-- Список приложений -->
+        <div v-if="loadingAllApps" class="loading-spinner">Загрузка...</div>
+        <div v-else-if="filteredAndSortedApps.length === 0" class="no-data">
+          Нет данных за выбранный период
+        </div>
+        <div v-else class="apps-list-modal">
+          <div v-for="app in filteredAndSortedApps" :key="app.id" class="app-item-modal">
+            <div class="app-left">
+              <div class="app-icon" :class="app.category">
+                <!-- Иконка в зависимости от категории (как в топе) -->
               </div>
+              <div class="app-info">
+                <h4>{{ app.name }}</h4>
+                <span class="app-category">{{ getCategoryName(app.category) }}</span>
+              </div>
+            </div>
+            <div class="app-right">
+              <div class="app-time">{{ formatTime(app.minutes) }}</div>
+              <div class="app-percent">{{ app.percentage }}%</div>
             </div>
           </div>
         </div>
-      </Teleport>
+      </div>
+    </div>
+  </div>
+</Teleport>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import axios from 'axios'
+import { Bar, Doughnut } from 'vue-chartjs'
+import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement } from 'chart.js'
+import { MatrixController, MatrixElement } from 'chartjs-chart-matrix'
+import MatrixChart from '@/components/MatrixChart.vue' // если выбрал решение 1
 
+// Регистрируем всё необходимое
+ChartJS.register(
+  Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement,
+  MatrixController, MatrixElement
+)
 // Состояние
 const selectedPeriod = ref('week')
 const activeFilter = ref('all')
@@ -280,7 +285,11 @@ const loading = ref({
   categories: true,
   dayBreakdown: false
 })
-
+const showAllAppsModal = ref(false)
+const allApps = ref([])
+const loadingAllApps = ref(false)
+const allAppsSearch = ref('') // если хочешь добавить поиск
+const allAppsSort = ref('time_desc') // сортировка: time_desc, time_asc, name_asc
 // Данные
 const statsCards = ref([])
 const dailyData = ref([])
@@ -301,13 +310,180 @@ const filters = ref([
 
 const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
+const viewAllApps = async () => {
+  showAllAppsModal.value = true
+  loadingAllApps.value = true
+  
+  try {
+    const params = { 
+      period: selectedPeriod.value,
+      filter: activeFilter.value !== 'all' ? activeFilter.value : undefined
+    }
+    const response = await apiClient.get('/api/statistics/all-apps', { params })
+    allApps.value = response.data.apps || [] // ожидаем массив приложений
+  } catch (error) {
+    console.error('Error loading all apps:', error)
+    allApps.value = []
+  } finally {
+    loadingAllApps.value = false
+  }
+}
+const filteredAndSortedApps = computed(() => {
+  let result = [...allApps.value]
+  
+  // Поиск по имени
+  if (allAppsSearch.value) {
+    const search = allAppsSearch.value.toLowerCase()
+    result = result.filter(app => app.name.toLowerCase().includes(search))
+  }
+  
+  // Сортировка
+  switch (allAppsSort.value) {
+    case 'time_desc':
+      result.sort((a, b) => b.minutes - a.minutes)
+      break
+    case 'time_asc':
+      result.sort((a, b) => a.minutes - b.minutes)
+      break
+    case 'name_asc':
+      result.sort((a, b) => a.name.localeCompare(b.name))
+      break
+  }
+  
+  return result
+})
 // API клиент
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true
 })
+const dailyChartData = computed(() => ({
+  labels: dailyData.value.map(d => d.label),
+  datasets: [
+    {
+      label: 'Часы',
+      data: dailyData.value.map(d => d.hours),
+      backgroundColor: 'rgba(99, 102, 241, 0.7)',
+      borderRadius: 6,
+    }
+  ]
+}))
 
+const heatmapMatrix = computed(() => {
+  const points = []
+  
+  if (!heatmapData.value || !heatmapData.value.length) {
+    return []
+  }
+  
+  heatmapData.value.forEach((dayData, dayIndex) => {
+    dayData.forEach((minutes, hourIndex) => {
+      points.push({
+        x: hourIndex,
+        y: dayIndex,
+        v: minutes
+      })
+    })
+  })
+  
+  return points
+})
+
+const heatmapChartData = computed(() => ({
+  datasets: [{
+    label: 'Активность',
+    data: heatmapMatrix.value,
+    backgroundColor(context) {
+      const value = context.dataset.data[context.dataIndex].v
+      if (value === 0) return 'rgba(255,255,255,0.05)'
+      if (value < 30) return 'rgba(99,102,241,0.2)'
+      if (value < 60) return 'rgba(99,102,241,0.4)'
+      if (value < 120) return 'rgba(99,102,241,0.6)'
+      return '#6366f1'
+    },
+    width: 35, // фиксированная ширина ячейки
+    height: 35, // фиксированная высота ячейки
+    borderRadius: 4
+  }]
+}))
+
+const heatmapOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        title(context) {
+          const point = context[0].raw
+          const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+          return `${dayNames[point.y]} ${point.x}:00`
+        },
+        label(context) {
+          const minutes = context.raw.v
+          const hours = Math.floor(minutes / 60)
+          const mins = Math.floor(minutes % 60)
+          return `Активность: ${hours > 0 ? hours + 'ч ' : ''}${mins}м`
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      type: 'linear',
+      position: 'bottom',
+      min: -0.5,
+      max: 23.5,
+      ticks: {
+        stepSize: 2,
+        callback: (val) => `${val}:00`,
+        color: '#94a3b8'
+      },
+      grid: { display: false }
+    },
+    y: {
+      type: 'linear',
+      position: 'left',
+      min: -0.5,
+      max: 6.5,
+      ticks: {
+        stepSize: 1,
+        callback: (val) => ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][val],
+        color: '#94a3b8'
+      },
+      grid: { display: false }
+    }
+  }
+}
+
+const dailyChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false, // важно!
+  plugins: {
+    legend: { display: false },
+    tooltip: { 
+      callbacks: { 
+        label: (ctx) => `${ctx.raw} ч` 
+      } 
+    }
+  },
+  scales: {
+    y: {
+      beginAtZero: true,
+      grid: { color: 'rgba(255,255,255,0.1)' },
+      ticks: { color: '#94a3b8' }
+    },
+    x: {
+      grid: { display: false },
+      ticks: { 
+        color: '#94a3b8',
+        maxRotation: 45, // поворот подписей если нужно
+        minRotation: 45
+      }
+    }
+  }
+}
 // Загрузка всех данных
 const loadAllData = async () => {
   try {
@@ -439,6 +615,7 @@ const getHeatClass = (minutes) => {
 }
 
 const getCategoryName = (category) => {
+  if (!category) return 'Другое'
   const names = {
     development: 'Разработка',
     browser: 'Браузер',
@@ -450,10 +627,10 @@ const getCategoryName = (category) => {
     music: 'Музыка',
     other: 'Другое'
   }
-  return names[category] || category
+  return names[category] || category || 'Другое'
 }
-
 const formatTime = (minutes) => {
+  if (minutes === undefined || minutes === null || isNaN(minutes)) return '0м'
   const h = Math.floor(minutes / 60)
   const m = Math.floor(minutes % 60)
   return h > 0 ? `${h}ч ${m}м` : `${m}м`
@@ -528,10 +705,6 @@ const closeModal = () => {
   dayActivities.value = []
 }
 
-const viewAllApps = () => {
-  // Переход на отдельную страницу со всеми приложениями
-  // router.push('/apps')
-}
 
 // Загрузка при монтировании и изменении периода
 onMounted(loadAllData)
@@ -812,7 +985,31 @@ watch(selectedPeriod, loadAllData)
   width: 16px;
   height: 16px;
 }
+.chart-wrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+  border-radius: 8px;
+}
 
+/* Стилизуем скроллбар */
+.chart-wrapper::-webkit-scrollbar {
+  height: 8px;
+}
+
+.chart-wrapper::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.chart-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.5);
+  border-radius: 4px;
+}
+
+.chart-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.8);
+}
 /* Графики */
 .charts-grid {
   display: grid;
@@ -826,6 +1023,7 @@ watch(selectedPeriod, loadAllData)
   border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 24px;
+  overflow: hidden; 
 }
 
 .chart-header {
@@ -855,6 +1053,8 @@ watch(selectedPeriod, loadAllData)
   align-items: flex-end;
   height: 200px;
   padding: 20px 0;
+  overflow-x: auto;          /* появится скролл при переполнении */
+  padding-bottom: 10px;      /* чтобы скролл не налезал на подписи */
 }
 
 .chart-day {
@@ -864,6 +1064,7 @@ watch(selectedPeriod, loadAllData)
   gap: 12px;
   flex: 1;
   cursor: pointer;
+   min-width: 40px;
 }
 
 .day-label {
@@ -1608,6 +1809,149 @@ watch(selectedPeriod, loadAllData)
   .heatmap-legend {
     flex-wrap: wrap;
     gap: 8px;
+  }
+}
+/* Модальное окно для всех приложений */
+.all-apps-modal {
+  max-width: 800px !important;
+  width: 90%;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.apps-toolbar {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.search-input {
+  flex: 1;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.sort-select {
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  min-width: 200px;
+}
+
+.apps-list-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.apps-list-modal::-webkit-scrollbar {
+  width: 6px;
+}
+
+.apps-list-modal::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.05);
+  border-radius: 3px;
+}
+
+.apps-list-modal::-webkit-scrollbar-thumb {
+  background: rgba(99,102,241,0.5);
+  border-radius: 3px;
+}
+
+.app-item-modal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.app-item-modal:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.app-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.app-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-info h4 {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.app-category {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.app-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.app-time {
+  font-size: 14px;
+  font-weight: 500;
+  min-width: 80px;
+  text-align: right;
+}
+
+.app-percent {
+  font-size: 14px;
+  color: var(--text-muted);
+  min-width: 60px;
+  text-align: right;
+}
+
+/* Адаптивность */
+@media (max-width: 600px) {
+  .apps-toolbar {
+    flex-direction: column;
+  }
+  
+  .sort-select {
+    width: 100%;
+  }
+  
+  .app-item-modal {
+    flex-wrap: wrap;
+  }
+  
+  .app-right {
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: 8px;
   }
 }
 </style>
