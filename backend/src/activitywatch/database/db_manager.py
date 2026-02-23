@@ -8,13 +8,21 @@ from sqlalchemy.orm import sessionmaker
 
 class DatabaseManager:
     def __init__(self, database_url):
-        self.engine = create_async_engine(database_url, echo=False)
+        self.engine = create_async_engine(
+            database_url,
+            echo=False,
+            pool_size=20,  # базовых соединений
+            max_overflow=10,  # доп. при пике
+            pool_pre_ping=True,
+        )
         self.AsyncSession = sessionmaker(
             bind=self.engine, expire_on_commit=False, class_=AsyncSession
         )
 
     @asynccontextmanager
-    async def get_session(self, existing_session: AsyncSession = None) -> AsyncIterator[AsyncSession]:
+    async def get_session(
+        self, existing_session: AsyncSession = None
+    ) -> AsyncIterator[AsyncSession]:
         """
         Provides an asynchronous context manager for managing SQLAlchemy sessions.
 

@@ -1,17 +1,14 @@
+# src/activitywatch/database/crud/statistics.py
+
 from datetime import datetime, timedelta, timezone
 import os
-from typing import TYPE_CHECKING, List, Dict, Any, Optional, Tuple
-from sqlalchemy import func, and_, select, text, case
+from typing import TYPE_CHECKING, Optional, List, Dict, Any
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.dialects.postgresql import array_agg
 
 from src.activitywatch.database.db_manager import DatabaseManager
-from src.activitywatch.database.models import (
-    ActivityEvent,
-    Device,
-    User,
-    DevicePlatform,
-)
+from src.activitywatch.database.models import ActivityEvent, Device
 
 if TYPE_CHECKING:
     from . import CommonCRUD
@@ -24,399 +21,371 @@ class StatisticsCRUD:
         self.db = db
         self.common = common_crud
 
-    async def get_user_daily_stats(
+    # ---------- Публичные методы с поддержкой session ----------
+    async def get_overview_stats(
         self,
         user_id: int,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[Dict[str, Any]]:
-        """Статистика по дням для пользователя"""
-        async with self.db.get_session() as session:
-            if not start_date:
-                start_date = datetime.now(timezone.utc) - timedelta(days=30)
-            if not end_date:
-                end_date = datetime.now(timezone.utc)
-
-            # Используем подзапрос для обхода проблемы GROUP BY
-            subquery = (
-                select(
-                    ActivityEvent.timestamp,
-                    ActivityEvent.duration_seconds,
-                    ActivityEvent.app,
-                    Device.platform,
-                    Device.user_id,
-                )
-                .join(Device, ActivityEvent.device_id == Device.id)
-                .where(
-                    and_(
-                        Device.user_id == user_id,
-                        ActivityEvent.timestamp >= start_date,
-                        ActivityEvent.timestamp <= end_date,
-                    )
-                )
-                .subquery()
-            )
-
-            stmt = (
-                select(
-                    func.date_trunc("day", subquery.c.timestamp).label("date"),
-                    subquery.c.platform,
-                    func.sum(subquery.c.duration_seconds).label("total_seconds"),
-                    func.count().label("event_count"),
-                )
-                .group_by(
-                    func.date_trunc("day", subquery.c.timestamp), subquery.c.platform
-                )
-                .order_by(func.date_trunc("day", subquery.c.timestamp).desc())
-            )
-
-            result = await session.execute(stmt)
-            rows = result.fetchall()
-
-            # Форматируем результат
-            stats_by_day = {}
-            for date, platform, total_seconds, event_count in rows:
-                date_str = date.strftime("%Y-%m-%d")
-                if date_str not in stats_by_day:
-                    stats_by_day[date_str] = {
-                        "date": date_str,
-                        "total_hours": 0,
-                        "by_platform": {},
-                        "events_count": 0,
-                    }
-
-                hours = total_seconds / 3600 if total_seconds else 0
-                stats_by_day[date_str]["total_hours"] += hours
-                stats_by_day[date_str]["events_count"] += event_count
-                stats_by_day[date_str]["by_platform"][platform.value] = hours
-
-            return list(stats_by_day.values())
-
-    async def get_platform_distribution(
-        self, user_id: int, days: int = 30
+        days: int = 7,
+        session: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
-        """Распределение по платформам"""
-        async with self.db.get_session() as session:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-
-            # Суммарное время по платформам
-            stmt = (
-                select(
-                    Device.platform,
-                    func.sum(ActivityEvent.duration_seconds).label("total_seconds"),
-                )
-                .join(Device, ActivityEvent.device_id == Device.id)
-                .where(
-                    and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff)
-                )
-                .group_by(Device.platform)
-            )
-
-            result = await session.execute(stmt)
-            rows = result.fetchall()
-
-            total_seconds = sum(row[1] or 0 for row in rows)
-
-            distribution = []
-            for platform, seconds in rows:
-                if seconds:
-                    percentage = (
-                        (seconds / total_seconds * 100) if total_seconds > 0 else 0
-                    )
-                    distribution.append(
-                        {
-                            "platform": platform.value,
-                            "hours": round(seconds / 3600, 1),
-                            "percentage": round(percentage, 1),
-                            "color": self._get_platform_color(platform.value),
-                        }
-                    )
-
-            return {
-                "distribution": sorted(
-                    distribution, key=lambda x: x["percentage"], reverse=True
-                ),
-                "total_hours": round(total_seconds / 3600, 1),
-                "period_days": days,
-            }
-
-    async def get_top_apps(
-        self, user_id: int, limit: int = 10, days: int = 7
-    ) -> List[Dict[str, Any]]:
-        """Топ приложений за период"""
-        async with self.db.get_session() as session:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-
-            stmt = (
-                select(
-                    ActivityEvent.app,
-                    Device.platform,
-                    func.sum(ActivityEvent.duration_seconds).label("total_seconds"),
-                    func.count(ActivityEvent.id).label("event_count"),
-                )
-                .join(Device, ActivityEvent.device_id == Device.id)
-                .where(
-                    and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff)
-                )
-                .group_by(ActivityEvent.app, Device.platform)
-            )
-
-            result = await session.execute(stmt)
-            rows = result.fetchall()
-
-            # Агрегируем по приложениям (суммируем время на всех платформах)
-            app_stats = {}
-            for app, platform, seconds, count in rows:
-                if not seconds:
-                    continue
-
-                if app not in app_stats:
-                    app_stats[app] = {
-                        "app": app,
-                        "total_seconds": 0,
-                        "platforms": set(),
-                        "event_count": 0,
-                    }
-
-                app_stats[app]["total_seconds"] += seconds
-                app_stats[app]["platforms"].add(platform.value)
-                app_stats[app]["event_count"] += count
-
-            # Сортируем и форматируем
-            sorted_apps = sorted(
-                app_stats.values(), key=lambda x: x["total_seconds"], reverse=True
-            )[:limit]
-
-            top_apps = []
-            total_seconds_all = (
-                sum(app["total_seconds"] for app in sorted_apps) if sorted_apps else 1
-            )
-
-            for i, app in enumerate(sorted_apps):
-                hours = app["total_seconds"] / 3600
-                percentage = (
-                    (app["total_seconds"] / total_seconds_all * 100)
-                    if total_seconds_all > 0
-                    else 0
-                )
-
-                top_apps.append(
-                    {
-                        "id": i + 1,
-                        "name": self._format_app_name(app["app"]),
-                        "original_name": app["app"],
-                        "category": self._detect_category(app["app"]),
-                        "platforms": list(app["platforms"]),
-                        "time_hours": round(hours, 1),
-                        "time_formatted": self._format_hours(hours),
-                        "percentage": round(percentage, 1),
-                        "event_count": app["event_count"],
-                    }
-                )
-
-            return top_apps
-
-    async def get_overview_stats(self, user_id: int, days: int = 7) -> Dict[str, Any]:
-        """Общая статистика для карточек"""
-        async with self.db.get_session() as session:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-
-            # Общее время
-            stmt_total = (
-                select(
-                    func.sum(ActivityEvent.duration_seconds).label("total_seconds"),
-                    func.count(ActivityEvent.id).label("event_count"),
-                )
-                .join(Device, ActivityEvent.device_id == Device.id)
-                .where(
-                    and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff)
-                )
-            )
-
-            result_total = await session.execute(stmt_total)
-            total_row = result_total.fetchone()
-            total_seconds = total_row[0] if total_row and total_row[0] else 0
-            event_count = total_row[1] if total_row else 0
-
-            # Среднее в день - исправленный запрос
-            # Создаем подзапрос с вычисленным днем
-            subquery = (
-                select(
-                    ActivityEvent.timestamp,
-                    ActivityEvent.duration_seconds,
-                    Device.user_id,
-                    func.date_trunc("day", ActivityEvent.timestamp).label("day_group"),
-                )
-                .join(Device, ActivityEvent.device_id == Device.id)
-                .where(
-                    and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff)
-                )
-                .subquery()
-            )
-
-            stmt_daily = select(
-                subquery.c.day_group.label("date"),
-                func.sum(subquery.c.duration_seconds).label("daily_seconds"),
-            ).group_by(subquery.c.day_group)
-
-            result_daily = await session.execute(stmt_daily)
-            daily_rows = result_daily.fetchall()
-            daily_seconds_list = [row[1] for row in daily_rows if row[1]]
-
-            avg_daily_seconds = (
-                sum(daily_seconds_list) / len(daily_seconds_list)
-                if daily_seconds_list
-                else 0
-            )
-
-            # Активные устройства
-            stmt_devices = (
-                select(func.count(func.distinct(Device.id)))
-                .join(ActivityEvent, Device.id == ActivityEvent.device_id)
-                .where(
-                    and_(
-                        Device.user_id == user_id,
-                        ActivityEvent.timestamp >= cutoff,
-                        Device.is_active == True,
-                    )
-                )
-            )
-
-            result_devices = await session.execute(stmt_devices)
-            active_devices = result_devices.scalar() or 0
-
-            # Продуктивное время (упрощённо: всё кроме развлекательных приложений)
-            productive_keywords = [
-                "code",
-                "vscode",
-                "pycharm",
-                "terminal",
-                "git",
-                "github",
-                "jupyter",
-                "docs",
-                "notion",
-            ]
-
-            stmt_productive = (
-                select(func.sum(ActivityEvent.duration_seconds))
-                .join(Device, ActivityEvent.device_id == Device.id)
-                .where(
-                    and_(
-                        Device.user_id == user_id,
-                        ActivityEvent.timestamp >= cutoff,
-                        func.lower(ActivityEvent.app).in_(
-                            [kw.lower() for kw in productive_keywords]
-                        ),
-                    )
-                )
-            )
-
-            result_productive = await session.execute(stmt_productive)
-            productive_seconds = result_productive.scalar() or 0
-
-            return {
-                "total_time": self._format_hours(total_seconds / 3600),
-                "total_seconds": total_seconds,
-                "average_daily": self._format_hours(avg_daily_seconds / 3600),
-                "active_devices": active_devices,
-                "productive_time": self._format_hours(productive_seconds / 3600),
-                "productive_percentage": round(
-                    (productive_seconds / total_seconds * 100)
-                    if total_seconds > 0
-                    else 0,
-                    1,
-                ),
-                "event_count": event_count,
-                "days_analyzed": len(daily_seconds_list),
-            }
+        if session is None:
+            async with self.db.get_session() as session:
+                return await self._get_overview_stats(session, user_id, days)
+        return await self._get_overview_stats(session, user_id, days)
 
     async def get_daily_activity_chart(
-        self, user_id: int, days: int = 7
+        self,
+        user_id: int,
+        days: int = 7,
+        session: Optional[AsyncSession] = None,
     ) -> List[Dict[str, Any]]:
-        """Данные для графика по дням недели"""
-        async with self.db.get_session() as session:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        if session is None:
+            async with self.db.get_session() as session:
+                return await self._get_daily_activity_chart(session, user_id, days)
+        return await self._get_daily_activity_chart(session, user_id, days)
 
-            # Используем подзапрос
-            subquery = (
-                select(
-                    ActivityEvent.timestamp,
-                    ActivityEvent.duration_seconds,
-                    Device.user_id,
-                    func.date_trunc("day", ActivityEvent.timestamp).label("day_group"),
+    async def get_platform_distribution(
+        self,
+        user_id: int,
+        days: int = 30,
+        session: Optional[AsyncSession] = None,
+    ) -> Dict[str, Any]:
+        if session is None:
+            async with self.db.get_session() as session:
+                return await self._get_platform_distribution(session, user_id, days)
+        return await self._get_platform_distribution(session, user_id, days)
+
+    async def get_top_apps(
+        self,
+        user_id: int,
+        limit: int = 10,
+        days: int = 7,
+        session: Optional[AsyncSession] = None,
+    ) -> List[Dict[str, Any]]:
+        if session is None:
+            async with self.db.get_session() as session:
+                return await self._get_top_apps(session, user_id, limit, days)
+        return await self._get_top_apps(session, user_id, limit, days)
+
+    async def get_hourly_activity(
+        self,
+        user_id: int,
+        days: int = 7,
+        session: Optional[AsyncSession] = None,
+    ) -> List[List[int]]:
+        if session is None:
+            async with self.db.get_session() as session:
+                return await self._get_hourly_activity(session, user_id, days)
+        return await self._get_hourly_activity(session, user_id, days)
+
+    async def get_category_distribution(
+        self,
+        user_id: int,
+        days: int = 7,
+        session: Optional[AsyncSession] = None,
+    ) -> List[Dict[str, Any]]:
+        if session is None:
+            async with self.db.get_session() as session:
+                return await self._get_category_distribution(session, user_id, days)
+        return await self._get_category_distribution(session, user_id, days)
+
+    async def get_trends(
+        self,
+        user_id: int,
+        period: str = "week",
+        session: Optional[AsyncSession] = None,
+    ) -> Dict[str, Any]:
+        if session is None:
+            async with self.db.get_session() as session:
+                return await self._get_trends(session, user_id, period)
+        return await self._get_trends(session, user_id, period)
+
+    # ---------- Приватные реализации ----------
+    async def _get_overview_stats(
+        self, session: AsyncSession, user_id: int, days: int
+    ) -> Dict[str, Any]:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        productive_keywords = [
+            "code",
+            "vscode",
+            "pycharm",
+            "intellij",
+            "terminal",
+            "git",
+            "github",
+            "jupyter",
+            "docs",
+            "notion",
+        ]
+
+        # 1. Подзапрос для суммы по дням (используется для вычисления среднего)
+        daily_subq = (
+            select(func.sum(ActivityEvent.duration_seconds).label("daily_total"))
+            .join(Device, ActivityEvent.device_id == Device.id)
+            .where(and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff))
+            .group_by(func.date_trunc("day", ActivityEvent.timestamp))
+            .subquery()
+        )
+
+        # 2. Среднее значение по дням на основе предыдущего подзапроса
+        daily_avg_subq = select(func.avg(daily_subq.c.daily_total)).scalar_subquery()
+
+        # 3. Подзапрос количества активных устройств
+        active_devices_subq = (
+            select(func.count(func.distinct(Device.id)))
+            .where(
+                Device.user_id == user_id,
+                Device.is_active == True,
+                Device.id.in_(
+                    select(ActivityEvent.device_id).where(
+                        ActivityEvent.timestamp >= cutoff
+                    )
+                ),
+            )
+            .scalar_subquery()
+            .label("active_devices")
+        )
+
+        # 4. Подзапрос продуктивного времени
+        productive_subq = (
+            select(func.coalesce(func.sum(ActivityEvent.duration_seconds), 0))
+            .join(Device, ActivityEvent.device_id == Device.id)
+            .where(
+                and_(
+                    Device.user_id == user_id,
+                    ActivityEvent.timestamp >= cutoff,
+                    func.lower(ActivityEvent.app).in_(
+                        [kw.lower() for kw in productive_keywords]
+                    ),
                 )
-                .join(Device, ActivityEvent.device_id == Device.id)
-                .where(
-                    and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff)
-                )
-                .subquery()
+            )
+            .scalar_subquery()
+            .label("productive_seconds")
+        )
+
+        # 5. Основной запрос (итоговые показатели)
+        stmt = (
+            select(
+                func.coalesce(func.sum(ActivityEvent.duration_seconds), 0).label(
+                    "total_seconds"
+                ),
+                func.count(ActivityEvent.id).label("event_count"),
+                func.coalesce(daily_avg_subq, 0).label("avg_daily_seconds"),
+                active_devices_subq,
+                productive_subq,
+            )
+            .select_from(ActivityEvent)
+            .join(Device, ActivityEvent.device_id == Device.id)
+            .where(and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff))
+        )
+
+        result = await session.execute(stmt)
+        row = result.one()
+
+        total_seconds = row.total_seconds or 0
+        avg_daily_seconds = row.avg_daily_seconds or 0
+        productive_seconds = row.productive_seconds or 0
+
+        return {
+            "total_time": self._format_hours(total_seconds / 3600),
+            "total_seconds": total_seconds,
+            "average_daily": self._format_hours(avg_daily_seconds / 3600),
+            "active_devices": row.active_devices or 0,
+            "productive_time": self._format_hours(productive_seconds / 3600),
+            "productive_percentage": round(
+                (productive_seconds / total_seconds * 100) if total_seconds > 0 else 0,
+                1,
+            ),
+            "event_count": row.event_count,
+            "days_analyzed": days,
+        }
+
+    async def _get_daily_activity_chart(
+        self, session: AsyncSession, user_id: int, days: int
+    ) -> List[Dict[str, Any]]:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        # Создаем выражение для даты и даем ему метку
+        date_col = func.date_trunc("day", ActivityEvent.timestamp).label("date")
+
+        stmt = (
+            select(
+                date_col,
+                func.sum(ActivityEvent.duration_seconds).label("total_seconds"),
+            )
+            .join(Device, ActivityEvent.device_id == Device.id)
+            .where(and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff))
+            .group_by(date_col)  # Используем тот же объект с меткой
+            .order_by(date_col)
+        )
+
+        result = await session.execute(stmt)
+        rows = result.fetchall()
+
+        if not rows:
+            return []
+
+        max_seconds = max(r.total_seconds for r in rows)
+        weekdays_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+        chart_data = []
+        for row in rows:
+            date = row.date
+            hours = row.total_seconds / 3600
+            percentage = (row.total_seconds / max_seconds * 100) if max_seconds else 0
+            chart_data.append(
+                {
+                    "label": weekdays_ru[date.weekday()],
+                    "date": date.strftime("%Y-%m-%d"),
+                    "hours": round(hours, 1),
+                    "percentage": round(percentage, 2),
+                    "value": round(percentage, 1),
+                }
+            )
+        return chart_data
+
+    async def _get_platform_distribution(
+        self, session: AsyncSession, user_id: int, days: int
+    ) -> Dict[str, Any]:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        stmt = (
+            select(
+                Device.platform,
+                func.coalesce(func.sum(ActivityEvent.duration_seconds), 0).label(
+                    "total_seconds"
+                ),
+            )
+            .join(ActivityEvent, Device.id == ActivityEvent.device_id)
+            .where(and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff))
+            .group_by(Device.platform)
+        )
+
+        result = await session.execute(stmt)
+        rows = result.fetchall()
+
+        total_seconds = sum(row.total_seconds for row in rows)
+        distribution = []
+        for row in rows:
+            seconds = row.total_seconds
+            percentage = (seconds / total_seconds * 100) if total_seconds > 0 else 0
+            distribution.append(
+                {
+                    "platform": row.platform.value,
+                    "hours": round(seconds / 3600, 1),
+                    "percentage": round(percentage, 1),
+                    "color": self._get_platform_color(row.platform.value),
+                }
             )
 
-            # Группируем по вычисленному дню
-            stmt = select(
-                subquery.c.day_group.label("date"),
-                func.sum(subquery.c.duration_seconds).label("total_seconds"),
-            ).group_by(subquery.c.day_group)
+        return {
+            "distribution": sorted(
+                distribution, key=lambda x: x["percentage"], reverse=True
+            ),
+            "total_hours": round(total_seconds / 3600, 1),
+            "period_days": days,
+        }
 
-            result = await session.execute(stmt)
-            rows = result.fetchall()
+    async def _get_top_apps(
+        self, session: AsyncSession, user_id: int, limit: int, days: int
+    ) -> List[Dict[str, Any]]:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-            # Преобразуем в удобный формат для графика
-            chart_data = []
-            max_hours = max((row[1] or 0) / 3600 for row in rows) if rows else 1
+        stmt = (
+            select(
+                ActivityEvent.app,
+                func.coalesce(func.sum(ActivityEvent.duration_seconds), 0).label(
+                    "total_seconds"
+                ),
+                func.count(ActivityEvent.id).label("event_count"),
+                array_agg(func.distinct(Device.platform)).label("platforms"),
+            )
+            .join(Device, ActivityEvent.device_id == Device.id)
+            .where(and_(Device.user_id == user_id, ActivityEvent.timestamp >= cutoff))
+            .group_by(ActivityEvent.app)
+            .order_by(func.sum(ActivityEvent.duration_seconds).desc())
+            .limit(limit)
+        )
 
-            # Дни недели на русском
-            weekdays_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+        result = await session.execute(stmt)
+        rows = result.fetchall()
 
-            for date, seconds in rows:
-                if seconds:
-                    hours = seconds / 3600
-                    # Процент от максимального значения для высоты столбца
-                    percentage = (hours / max_hours * 100) if max_hours > 0 else 0
+        total_seconds_all = sum(row.total_seconds for row in rows) or 1
+        top_apps = []
+        for i, row in enumerate(rows):
+            hours = row.total_seconds / 3600
+            percentage = (
+                (row.total_seconds / total_seconds_all * 100)
+                if total_seconds_all > 0
+                else 0
+            )
+            top_apps.append(
+                {
+                    "id": i + 1,
+                    "name": self._format_app_name(row.app),
+                    "original_name": row.app,
+                    "category": self._detect_category(row.app),
+                    "platforms": list(row.platforms) if row.platforms else [],
+                    "time_hours": round(hours, 1),
+                    "time_formatted": self._format_hours(hours),
+                    "percentage": round(percentage, 1),
+                    "event_count": row.event_count,
+                }
+            )
+        return top_apps
 
-                    # Определяем день недели
-                    weekday_num = date.weekday()
-                    weekday_label = weekdays_ru[weekday_num]
+    async def _get_hourly_activity(
+        self, session: AsyncSession, user_id: int, days: int
+    ) -> List[List[int]]:
+        # Используем сырой SQL для производительности
+        query = text("""
+            SELECT EXTRACT(DOW FROM ae.timestamp) as day_of_week,
+                   EXTRACT(HOUR FROM ae.timestamp) as hour,
+                   SUM(ae.duration_seconds) as total_seconds
+            FROM activity_events ae
+            JOIN devices d ON ae.device_id = d.id
+            WHERE d.user_id = :user_id
+              AND ae.timestamp >= NOW() - (:days * INTERVAL '1 day')
+            GROUP BY day_of_week, hour
+            ORDER BY day_of_week, hour
+        """)
+        result = await session.execute(query, {"user_id": user_id, "days": days})
+        rows = result.fetchall()
 
-                    chart_data.append(
-                        {
-                            "label": weekday_label,
-                            "date": date.strftime("%Y-%m-%d"),
-                            "hours": round(hours, 1),
-                            "percentage": round(percentage, 2),
-                            "value": round(
-                                percentage, 1
-                            ),  # для совместимости с фронтендом
-                        }
-                    )
+        heatmap = [[0] * 24 for _ in range(7)]
+        for row in rows:
+            dow = int(row[0])  # 0-6 (воскресенье=0)
+            hour = int(row[1])
+            minutes = row[2] / 60  # переводим секунды в минуты
+            heatmap[dow][hour] = int(minutes)
+        return heatmap
 
-            # Сортируем по дате
-            chart_data.sort(key=lambda x: x["date"])
+    async def _get_category_distribution(
+        self, session: AsyncSession, user_id: int, days: int
+    ) -> List[Dict[str, Any]]:
+        # Здесь нужна таблица категорий, если её нет – используем упрощённый вариант
+        # В текущей схеме нет поля category в ActivityEvent, поэтому этот метод требует доработки.
+        # Пока заглушка.
+        return []
 
-            # Если данных мало, добавляем недостающие дни
-            if len(chart_data) < 7:
-                for i in range(7):
-                    date = (datetime.now(timezone.utc) - timedelta(days=i)).date()
-                    date_str = date.strftime("%Y-%m-%d")
-                    if not any(d["date"] == date_str for d in chart_data):
-                        weekday_num = date.weekday()
-                        weekday_label = weekdays_ru[weekday_num]
-                        chart_data.append(
-                            {
-                                "label": weekday_label,
-                                "date": date_str,
-                                "hours": 0,
-                                "percentage": 0,
-                                "value": 0,
-                            }
-                        )
+    async def _get_trends(
+        self, session: AsyncSession, user_id: int, period: str
+    ) -> Dict[str, Any]:
+        days_map = {"week": 7, "month": 30}
+        days = days_map.get(period, 7)
+        # Получаем данные за текущий и предыдущий период
+        current = await self._get_overview_stats(session, user_id, days)
+        # Для предыдущего сдвигаем cutoff на days назад
+        previous = await self._get_overview_stats(
+            session, user_id, days
+        )  # нужно реализовать
 
-            return sorted(chart_data, key=lambda x: x["date"])
+        # Упрощённо – пока пустой ответ
+        return {}
 
-    # Вспомогательные методы
+    # ---------- Вспомогательные методы ----------
     def _get_platform_color(self, platform: str) -> str:
-        """Цвет для платформы"""
         colors = {
             "windows": "#0078d4",
             "linux": "#ff9900",
@@ -427,27 +396,14 @@ class StatisticsCRUD:
         return colors.get(platform.lower(), "#64748b")
 
     def _format_app_name(self, app_name: str) -> str:
-        """Форматирование названия приложения"""
         if not app_name:
             return "Unknown"
-
-        # Извлекаем имя файла из пути (если это путь)
         base_name = os.path.basename(app_name)
-
-        # Убираем расширение, если оно есть
         name_without_ext = os.path.splitext(base_name)[0]
-
-        # Если после удаления расширения ничего не осталось (например, ".exe"),
-        # возвращаем исходное имя файла
-        if not name_without_ext:
-            return base_name
-
-        return name_without_ext
+        return name_without_ext if name_without_ext else base_name
 
     def _detect_category(self, app_name: str) -> str:
-        """Определение категории приложения"""
         app_lower = app_name.lower()
-
         categories = {
             "development": [
                 "vscode",
@@ -473,26 +429,19 @@ class StatisticsCRUD:
             "productivity": ["notion", "trello", "asana", "calendar", "notes"],
             "design": ["figma", "photoshop", "illustrator", "sketch"],
         }
-
         for category, keywords in categories.items():
             if any(keyword in app_lower for keyword in keywords):
                 return category
-
         return "other"
 
     def _format_hours(self, hours: float) -> str:
-        """Форматирование времени"""
         if hours <= 0:
             return "0ч"
-
         if hours < 1:
             minutes = int(hours * 60)
             return f"{minutes}м"
-
         whole_hours = int(hours)
         minutes = int((hours - whole_hours) * 60)
-
         if minutes == 0:
             return f"{whole_hours}ч"
-        else:
-            return f"{whole_hours}ч {minutes}м"
+        return f"{whole_hours}ч {minutes}м"
