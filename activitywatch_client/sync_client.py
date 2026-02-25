@@ -3,7 +3,7 @@ import time
 
 import socket
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 from typing import Dict, List
 
 from pathlib import Path
@@ -166,57 +166,50 @@ class ActivityWatchSyncService(BaseSyncClient):
         self.daily_cache = []
 
     def _catch_up_history(self, bucket_id: str) -> bool:
-        """Отправляет все пропущенные дни (от earliest до yesterday)."""
         logger.info("Начинаем дозаполнение истории...")
-
-        # Получаем самое раннее событие
-        earliest = self.client.get_earliest_event_time(bucket_id)
-        if not earliest:
-            logger.info("Нет событий для истории")
+        
+        # Получаем ВСЕ события из bucket (limit=-1 значит "без лимита")
+        logger.info(f"Загружаем все события из {bucket_id}...")
+        all_events = self.client.get_events(bucket_id, limit=-1)
+        
+        if not all_events:
+            logger.info("Нет событий для отправки")
             return True
-
-        # Определяем дату начала отправки
-        last = self.state.state.last_sync_time
-        if last and last > earliest:
-            start_date = last.date() + timedelta(
-                days=1
-            )  # следующий день после last_sync
+        
+        total_events = len(all_events)
+        logger.info(f"Всего событий: {total_events}")
+        
+        # Конвертируем в формат для сервера
+        serialized_events = []
+        for event in all_events:
+            # event - это словарь, обращаемся по ключам
+            serialized_events.append({
+                "timestamp": event.get("timestamp"),
+                "duration": event.get("duration", 0),
+                "data": event.get("data", {})
+            })
+        
+        # Отправляем пачками по 5000 событий
+        CHUNK_SIZE = 5000
+        success = True
+        
+        for i in range(0, total_events, CHUNK_SIZE):
+            chunk = serialized_events[i:i + CHUNK_SIZE]
+            logger.info(f"Отправка пачки {i//CHUNK_SIZE + 1}/{(total_events-1)//CHUNK_SIZE + 1} ({len(chunk)} событий)...")
+            
+            if not self.client.send_incremental_update(chunk):
+                logger.error(f"Ошибка при отправке пачки {i//CHUNK_SIZE + 1}")
+                success = False
+                break
+        
+        if success:
+            # Обновляем время последней синхронизации на текущее
+            self.state.update_sync_time(datetime.now(timezone.utc))
+            logger.info("✅ Дозаполнение истории завершено успешно")
         else:
-            start_date = earliest.date()
-
-        # Вчерашний день (сегодня ещё не закончился)
-        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
-
-        if start_date > yesterday:
-            logger.info("История уже актуальна")
-            return True
-
-        logger.info(f"Будем отправлять дни от {start_date} до {yesterday}")
-
-        current_date = start_date
-        while current_date <= yesterday:
-            day_start = datetime.combine(current_date, time.min, tzinfo=timezone.utc)
-            day_end = datetime.combine(current_date, time.max, tzinfo=timezone.utc)
-
-            logger.info(f"Обрабатываем {current_date}")
-            events = self.client.get_events(
-                bucket_id, start_time=day_start, end_time=day_end
-            )
-
-            if events:
-                # Отправляем все события за день
-                success = self.client.send_incremental_update(events)
-                if not success:
-                    logger.error(f"Ошибка при отправке дня {current_date}, прерываем")
-                    return False
-                logger.info(f"Отправлено {len(events)} событий за {current_date}")
-
-            # Обновляем состояние: last_sync_time = конец дня
-            self.state.update_sync_time(day_end)
-            current_date += timedelta(days=1)
-
-        logger.info("Дозаполнение истории завершено")
-        return True
+            logger.error("❌ Дозаполнение истории завершилось с ошибками")
+        
+        return success
 
     def _should_catch_up(self) -> bool:
         """Проверяет, нужно ли дозаполнять историю."""

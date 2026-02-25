@@ -48,7 +48,7 @@ class ActivityWatchClient:
     def __init__(
         self,
         api_url: str = "http://localhost:5600/api/0",
-        server_url: str = "http://192.168.2.126:8000",
+        server_url: str = "http://192.168.2.124:8000",
     ):
         """
         Инициализация клиента.
@@ -75,15 +75,22 @@ class ActivityWatchClient:
         )
 
     def get_earliest_event_time(self, bucket_id: str) -> Optional[datetime]:
-        """Возвращает время самого раннего события в bucket."""
-        # Запрашиваем одно событие после очень ранней даты
-        very_early = datetime(2000, 1, 1, tzinfo=timezone.utc)
-        events = self.get_events(bucket_id, start_time=very_early, limit=1)
+        """
+        Надёжное получение времени самого раннего события в bucket.
+        Запрашивает до 50 000 событий за последние 5 лет и находит минимальную дату.
+        """
+        five_years_ago = datetime.now(timezone.utc) - timedelta(days=5*365)
+        events = self.get_events(bucket_id, start_time=five_years_ago, limit=50000)
+        if not events:
+            # Если за 5 лет событий нет, пробуем вообще без временного ограничения
+            events = self.get_events(bucket_id, limit=50000)
         if events:
-            ts = events[0].get("timestamp")
-            if ts:
-                # Преобразуем строку в datetime (как в filter_new_events)
-                return self._parse_timestamp(ts)  # нужно реализовать
+            # Сортируем на случай, если API вернуло в неправильном порядке
+            sorted_events = sorted(events, key=lambda e: self._parse_timestamp(e["timestamp"]))
+            earliest = self._parse_timestamp(sorted_events[0]["timestamp"])
+            logger.info(f"✅ Самое раннее событие в {bucket_id}: {earliest}")
+            return earliest
+        logger.info(f"ℹ️ В bucket {bucket_id} нет событий")
         return None
 
     def _parse_timestamp(self, ts_str: str) -> datetime:
@@ -546,7 +553,7 @@ class ActivityWatchClient:
             response = self.session.post(
                 f"{self.server_url}/tracker/receive_incremental",
                 json=payload,
-                timeout=15,
+                timeout=160,
             )
 
             if response.status_code == 200:

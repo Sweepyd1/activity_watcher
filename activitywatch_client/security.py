@@ -129,7 +129,7 @@ class SecurityToken:
         
         try:
             response = requests.post(
-                "http://192.168.2.126:8000/devices/register",
+                "http://192.168.2.124:8000/devices/register",
                 json=payload,
                 timeout=10
             )
