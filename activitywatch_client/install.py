@@ -54,6 +54,13 @@ if SYSTEM == "Windows":
     LOG_DIR = Path.home() / ".activitywatch"
     PYTHON_EXE = VENV_DIR / "Scripts" / "python.exe"
     PIP_EXE = VENV_DIR / "Scripts" / "pip.exe"
+elif SYSTEM == "Darwin":
+    BASE_DIR = Path.home() / "Library/Application Support"
+    INSTALL_DIR = BASE_DIR / "activitywatch-manager"
+    VENV_DIR = BASE_DIR / "activitywatch-manager-venv"
+    LOG_DIR = Path.home() / ".activitywatch"
+    PYTHON_EXE = VENV_DIR / "bin" / "python"
+    PIP_EXE = VENV_DIR / "bin" / "pip"
 else:  # Linux
     BASE_DIR = Path.home() / ".local/share"
     INSTALL_DIR = BASE_DIR / "activitywatch-manager"
@@ -239,7 +246,40 @@ def setup_activitywatch_linux():
     except Exception as e:
         logger.error(f"Ошибка при настройке ActivityWatch: {e}")
         return False
-
+# ------------------------------------------------------------
+# 7b. Установка/проверка ActivityWatch (macOS)
+# ------------------------------------------------------------
+def setup_activitywatch_macos():
+    """Проверяет/устанавливает ActivityWatch через менеджер (только macOS)."""
+    logger.info("Проверка/установка ActivityWatch...")
+    
+    try:
+        # Добавляем путь к INSTALL_DIR в sys.path для импорта manager
+        sys.path.insert(0, str(INSTALL_DIR))
+        from manager import ActivityWatchManager
+        
+        manager = ActivityWatchManager()
+        # Передаём путь к python из venv для использования в сервисах
+        manager.python_path = str(PYTHON_EXE)
+        
+        installed, _ = manager.check_activitywatch_installed()
+        if not installed:
+            logger.info("ActivityWatch не установлен. Устанавливаем...")
+            if not manager.install_activitywatch():
+                logger.error("Не удалось установить ActivityWatch")
+                return False
+        else:
+            logger.info("ActivityWatch уже установлен")
+        
+        # Запускаем, если не запущен
+        if not manager.check_activitywatch_running():
+            logger.info("Запуск ActivityWatch...")
+            manager.start_activitywatch()
+        
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при настройке ActivityWatch: {e}")
+        return False
 # ------------------------------------------------------------
 # 8. Настройка автозапуска для Linux (systemd)
 # ------------------------------------------------------------
@@ -406,7 +446,143 @@ def setup_autostart_windows():
     except Exception as e:
         logger.error(f"Ошибка при создании задачи: {e}")
         return False
+# ------------------------------------------------------------
+# 9b. Настройка автозапуска для macOS (launchd)
+# ------------------------------------------------------------
+def setup_autostart_macos():
+    """Создаёт агенты launchd для ActivityWatch и синхронизатора."""
+    logger.info("Настройка автозапуска для macOS...")
 
+    # Директория для агентов launchd
+    launch_agents_dir = Path.home() / "Library/LaunchAgents"
+    launch_agents_dir.mkdir(parents=True, exist_ok=True)
+
+    # Импортируем менеджер для поиска компонентов
+    sys.path.insert(0, str(INSTALL_DIR))
+    from manager import ActivityWatchManager
+    manager = ActivityWatchManager()
+
+    # --------------------------------------------------------
+    # 1. Создание скрипта запуска ActivityWatch (все компоненты)
+    # --------------------------------------------------------
+    aw_script = INSTALL_DIR / "run_activitywatch_macos.sh"
+    
+    # Находим пути к компонентам
+    aw_server = manager._find_component("aw-server")
+    aw_watcher_window = manager._find_component("aw-watcher-window")
+    aw_watcher_afk = manager._find_component("aw-watcher-afk")
+    
+    if not aw_server:
+        logger.error("aw-server не найден. Убедитесь, что ActivityWatch установлен корректно.")
+        return False
+
+    # Формируем скрипт запуска (аналогично Linux)
+    script_content = f"""#!/bin/bash
+# Скрипт запуска ActivityWatch (macOS)
+cd {INSTALL_DIR}
+
+# Запускаем сервер
+"{aw_server}" &
+SERVER_PID=$!
+
+sleep 10
+
+# Запускаем вотчеры, если они есть
+if [ -f "{aw_watcher_window}" ]; then
+    "{aw_watcher_window}" &
+fi
+if [ -f "{aw_watcher_afk}" ]; then
+    "{aw_watcher_afk}" &
+fi
+
+# Ждём завершения сервера (никогда не завершается)
+wait $SERVER_PID
+"""
+    with open(aw_script, "w") as f:
+        f.write(script_content)
+    aw_script.chmod(0o755)
+    logger.info(f"Создан скрипт запуска ActivityWatch: {aw_script}")
+
+    # --------------------------------------------------------
+    # 2. Создание plist для ActivityWatch
+    # --------------------------------------------------------
+    aw_plist = launch_agents_dir / "local.activitywatch.plist"
+    aw_plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>local.activitywatch</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>{aw_script}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{LOG_DIR}/activitywatch_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{LOG_DIR}/activitywatch_stderr.log</string>
+</dict>
+</plist>"""
+    with open(aw_plist, "w") as f:
+        f.write(aw_plist_content)
+    logger.info(f"Создан plist для ActivityWatch: {aw_plist}")
+
+    # --------------------------------------------------------
+    # 3. Создание plist для синхронизатора
+    # --------------------------------------------------------
+    sync_plist = launch_agents_dir / "local.activitywatch-sync.plist"
+    sync_script = INSTALL_DIR / "run_sync_service.py"
+    if not sync_script.exists():
+        logger.error(f"Скрипт синхронизации не найден: {sync_script}")
+        return False
+
+    sync_plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>local.activitywatch-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{PYTHON_EXE}</string>
+        <string>{sync_script}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{LOG_DIR}/sync_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{LOG_DIR}/sync_stderr.log</string>
+</dict>
+</plist>"""
+    with open(sync_plist, "w") as f:
+        f.write(sync_plist_content)
+    logger.info(f"Создан plist для синхронизатора: {sync_plist}")
+
+    # --------------------------------------------------------
+    # 4. Загрузка агентов в launchd
+    # --------------------------------------------------------
+    try:
+        # Выгружаем, если уже загружены (игнорируем ошибки)
+        subprocess.run(["launchctl", "unload", str(aw_plist)], capture_output=True)
+        subprocess.run(["launchctl", "unload", str(sync_plist)], capture_output=True)
+
+        # Загружаем с флагом -w (постоянная загрузка)
+        subprocess.run(["launchctl", "load", "-w", str(aw_plist)], check=True)
+        subprocess.run(["launchctl", "load", "-w", str(sync_plist)], check=True)
+
+        logger.info("Агенты launchd успешно загружены.")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Ошибка загрузки агентов launchd: {e}")
+        return False
 # ------------------------------------------------------------
 # 10. Создание вспомогательных скриптов
 # ------------------------------------------------------------
@@ -438,24 +614,45 @@ tail -20 ~/.activitywatch/activitywatch_sync.log
     elif SYSTEM == "Windows":
         check_bat = Path.home() / "check_activitywatch.bat"
         check_bat.write_text(f"""\
-@echo off
-echo === ActivityWatch Status ===
-echo.
-echo 1. Задача в планировщике:
-schtasks /query /tn ActivityWatchSync 2>nul
-if %errorlevel% neq 0 echo Задача не найдена
-echo.
-echo 2. ActivityWatch API (требуется curl):
-curl -s http://localhost:5600/api/0/info 2>nul | python -m json.tool 2>nul
-if %errorlevel% neq 0 echo ActivityWatch не отвечает
-echo.
-echo 3. Процессы:
-tasklist | findstr python
-echo.
-echo 4. Последние логи синхронизации:
-type "%USERPROFILE%\\.activitywatch\\activitywatch_sync.log" 2>nul
-""")
+        @echo off
+        echo === ActivityWatch Status ===
+        echo.
+        echo 1. Задача в планировщике:
+        schtasks /query /tn ActivityWatchSync 2>nul
+        if %errorlevel% neq 0 echo Задача не найдена
+        echo.
+        echo 2. ActivityWatch API (требуется curl):
+        curl -s http://localhost:5600/api/0/info 2>nul | python -m json.tool 2>nul
+        if %errorlevel% neq 0 echo ActivityWatch не отвечает
+        echo.
+        echo 3. Процессы:
+        tasklist | findstr python
+        echo.
+        echo 4. Последние логи синхронизации:
+        type "%USERPROFILE%\\.activitywatch\\activitywatch_sync.log" 2>nul
+        """)
         logger.info(f"Создан скрипт проверки: {check_bat}")
+    
+    elif SYSTEM == "Darwin":
+        check_script = Path.home() / "check_activitywatch.command"
+        check_script.write_text(f"""\
+        #!/bin/bash
+        echo "=== ActivityWatch Status (macOS) ==="
+        echo ""
+        echo "1. Агенты launchd:"
+        launchctl list | grep activitywatch
+        echo ""
+        echo "2. ActivityWatch API:"
+        curl -s http://localhost:5600/api/0/info | python3 -m json.tool || echo "ActivityWatch не отвечает"
+        echo ""
+        echo "3. Процессы:"
+        ps aux | grep -E "aw-|run_sync" | grep -v grep
+        echo ""
+        echo "4. Последние логи синхронизации:"
+        tail -20 ~/.activitywatch/activitywatch_sync.log
+        """)
+        check_script.chmod(0o755)
+        logger.info(f"Создан скрипт проверки: {check_script}")
 
 # ------------------------------------------------------------
 # 11. Проверка наличия ActivityWatch на Windows
@@ -506,7 +703,14 @@ def print_success():
         print("  check_activitywatch.bat (в домашней папке)")
         print("\n📝 Логи:")
         print("  type %USERPROFILE%\\.activitywatch\\activitywatch_sync.log")
-    
+    elif SYSTEM == "Darwin":
+        print("✅ Агенты launchd настроены")
+        print("✅ Автозапуск включён")
+        print("\n📊 Проверить статус:")
+        print("  open ~/check_activitywatch.command (или запустить в терминале)")
+        print("\n📝 Логи:")
+        print("  tail -f ~/.activitywatch/activitywatch_sync.log")
+        print("  tail -f ~/.activitywatch/activitywatch_stdout.log")
     print("\n🔄 После перезагрузки всё запустится автоматически!")
     print("="*70)
 
@@ -546,6 +750,14 @@ def main():
             # Настраиваем автозапуск синхронизатора
             if not setup_autostart_windows():
                 logger.error("Не удалось настроить автозапуск для Windows")
+                sys.exit(1)
+        elif SYSTEM == "Darwin":
+            # Проверяем/устанавливаем ActivityWatch
+            setup_activitywatch_macos()
+            
+            # Настраиваем автозапуск через launchd
+            if not setup_autostart_macos():
+                logger.error("Не удалось настроить автозапуск для macOS")
                 sys.exit(1)
         else:
             logger.error(f"Неподдерживаемая ОС: {SYSTEM}")
